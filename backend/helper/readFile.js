@@ -2,9 +2,11 @@
 import fs from 'fs/promises';
 
 /**
- * Reads a file async way
- * @param {*} path 
- * @returns contents || null
+ * Reads a file asynchronously as UTF-8 text.
+ *
+ * @param {string} path The path of the file to read.
+ * @returns {Promise<string|null>} The file contents, or null when the path is
+ * missing or the file cannot be read.
  */
 async function Read(path){
     try {
@@ -17,4 +19,3 @@ async function Read(path){
     }
 }
 export default Read;
-

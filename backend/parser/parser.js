@@ -2,7 +2,13 @@ import * as acorn from "acorn"
 import Read from '../helper/readFile.js';
 
 
-
+/**
+ * Reads and parses a JavaScript module into an Acorn AST.
+ *
+ * @param {string} path The path of the JavaScript file to parse.
+ * @returns {Promise<{ast: object}|{error: string}|undefined>} The parsed AST,
+ * a read-error result, or undefined when parsing throws.
+ */
 async function Parse(path){
     try {
         const result={};
@@ -30,5 +36,4 @@ async function Parse(path){
 }
 
 export default Parse;
-
 

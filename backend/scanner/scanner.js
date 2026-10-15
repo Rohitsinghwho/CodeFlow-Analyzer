@@ -2,16 +2,23 @@ import fs from 'fs/promises';
 import path from 'path';
 
 
-/**
- * List all the files which are present in the codebase and ignore the node_modules and text files basically it only
- * lists javascript files.We are using Depth first search here
- */
-
 const IGNORED = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.gitignore', 'test']);
 const EXTENSIONS = new Set(['.js', '.mjs', '.cjs']);
 
+/**
+ * Recursively finds supported JavaScript files below a directory.
+ *
+ * @param {string} dirPath The directory where scanning starts.
+ * @param {string} rootPath The base path used for relative results.
+ * @returns {Promise<string[]>} Sorted JavaScript file paths relative to rootPath.
+ */
 async function listJsFiles(dirPath, rootPath) {
-    // Inner helper function avoids sorting on every recursive directory step
+    /**
+     * Walks one directory branch without sorting intermediate results.
+     *
+     * @param {string} currentDir The directory branch to scan.
+     * @returns {Promise<string[]>} JavaScript file paths found in the branch.
+     */
     async function recurse(currentDir) {
         let result = [];
         
