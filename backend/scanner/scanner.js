@@ -29,8 +29,6 @@ async function listJsFiles(dirPath, rootPath) {
 
             const fullPath = path.join(currentDir, entry.name);
             const newPath = path.relative(rootPath, fullPath).split(path.sep).join('/');
-            console.log('new Path: ',newPath)
-
             if (entry.isDirectory()) {
                 result = result.concat(await recurse(fullPath));
             } else if (entry.isFile()) {

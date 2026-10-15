@@ -51,22 +51,30 @@ as line and column numbers.
 
 ### Read failure
 
-If `Read(path)` returns `null`, `Parse` logs `Failed to Read the file`, adds an
-`error` property, and resolves to:
+If `Read(path)` returns `null`, `Parse` returns a structured error result:
 
 ```js
 {
-  error: "Failed to Read the file"
+  file: "src/index.js",
+  error: "Failed to read the file"
 }
 ```
 
 ### Parse failure
 
 If Acorn throws because the source contains invalid or unsupported syntax,
-`Parse` catches the exception and logs the file name, error message, and
-location (`error.loc`). The current implementation does not return an error
-object from this catch branch, so callers should not assume that every failed
-parse has the same result shape as a read failure.
+`Parse` returns the file path and the parser message, including the line and
+column when Acorn provides them:
+
+```js
+{
+  file: "src/routes/url.js",
+  error: "Unexpected token (line 4, column 12)"
+}
+```
+
+Callers can use the presence of `ast` to identify successful parses and the
+`file` and `error` fields to report failed files clearly.
 
 ## Acorn configuration
 
@@ -91,6 +99,37 @@ const options = {
 The parser currently targets JavaScript modules. TypeScript, JSX, and other
 syntax extensions are not enabled by these options.
 
+## Current analysis coverage
+
+Acorn parses the complete JavaScript module into an AST. The current analysis
+step, implemented by `visit(ast)`, extracts only selected function-like
+declarations from that AST. It currently handles:
+
+| AST construct | `kind` | What is recorded |
+|---|---|---|
+| `FunctionDeclaration` | `"function"` | The function name, a `null` owner, and the declaration start and end lines. Anonymous functions use `"default"` as the name. |
+| `VariableDeclarator` with an `ArrowFunctionExpression` initializer | `"function"` | The variable name, a `null` owner, and the arrow-function start and end lines. |
+| `VariableDeclarator` with a `FunctionExpression` initializer | `"function"` | The variable name, a `null` owner, and the function-expression start and end lines. |
+| Non-computed `MethodDefinition` with an identifier key | `"method"` | The method name, its enclosing class as `owner`, and the method value start and end lines. |
+| Non-computed object `Property` with an identifier key and function value | `"method"` | The property name, its enclosing object variable as `owner` when available, and the function value start and end lines. |
+
+Variable declarations are included only when the declared name is a simple
+identifier. Destructuring patterns, variables initialized with values other
+than arrow or function expressions, and variables with no initializer are not
+recorded. Computed method and object-property names are also not recorded.
+
+The traversal is recursive and visits nested functions, classes, arrays, and
+other AST child nodes in depth-first order. It records source line ranges but
+does not currently extract imports, function calls, parameters, return values,
+class fields, or call-graph relationships. These constructs remain available
+in the Acorn AST for future analysis.
+
+The sample input
+[`sample-project/tiny.js`](../sample-project/tiny.js) demonstrates these
+cases with named functions, arrow functions, function expressions, an
+`async` function, class methods, object methods, a default-exported anonymous
+function, a non-function variable, and nested functions.
+
 ## Utility functions used by the parser
 
 ### `Read(path)`
@@ -112,45 +151,93 @@ Its behavior is:
 Keeping file I/O in this helper leaves `Parse` responsible for parsing rather
 than for opening files directly.
 
-### `visit(ast)`
+### `visit(ast, relativePath)`
 
 `visit` is the default export from
 [`backend/helper/visitChild.js`](../backend/helper/visitChild.js). It performs
 a recursive depth-first traversal of an AST and returns an array describing
-function declarations assigned to variables:
+the function-like declarations listed in
+[Current analysis coverage](#current-analysis-coverage):
 
 ```js
-const functions = visit(ast);
+const functions = visit(ast, relativePath);
 ```
+
+`relativePath` is the normalized path of the source file relative to the
+analysis root. It is used as the first part of each result ID so declarations
+from different files can be distinguished.
 
 For each node, the internal `visitChilds` function:
 
-1. checks whether the node is a `VariableDeclarator`;
-2. selects declarations whose identifier is a simple `Identifier`;
-3. selects declarations initialized with an `ArrowFunctionExpression` or
+1. records `FunctionDeclaration` nodes, using `"default"` when the declaration
+   has no identifier;
+2. selects `VariableDeclarator` nodes whose identifier is a simple
+   `Identifier` and whose initializer is an `ArrowFunctionExpression` or
    `FunctionExpression`;
-4. records the identifier name and the initializer's `loc` source-location
-   object; and
+3. records non-computed `MethodDefinition` nodes whose key is an `Identifier`,
+   assigning the enclosing class name as `owner` when available;
+4. records non-computed `Property` nodes whose key is an `Identifier` and
+   whose value is an arrow or function expression, assigning the enclosing
+   object variable as `owner` when available; and
 5. recursively visits AST nodes inside arrays and direct AST-node properties.
 
 This allows the traversal to work with Acorn's nested node structure without
 hard-coding fields such as `body`, `declarations`, or `expression`.
 
+### Result IDs and duplicate declarations
+
+Every result receives an `id` built from the relative file path:
+
+```text
+<relativePath>#<name>
+```
+
+For methods, the owner is included in the name portion:
+
+```text
+<relativePath>#<owner>.<methodName>
+```
+
+The visitor keeps an `IdSet` for the current file. When an ID has already
+been used, the new result receives the declaration's start line as a suffix:
+
+```text
+sample-project/tiny.js#handler
+sample-project/tiny.js#handler@12
+```
+
+This preserves both declarations while keeping IDs stable and readable. The
+path component prevents same-named declarations in different files from
+colliding, while the owner component distinguishes methods belonging to
+different classes or objects.
+
 The returned entries have this shape:
 
 ```js
 {
+  id: "sample-project/tiny.js#render",
   name: "render",
-  location: {
-    start: { line: 3, column: 15 },
-    end: { line: 3, column: 31 }
-  }
+  owner: null,
+  kind: "function",
+  line: 3,
+  endLine: 8
 }
 ```
 
-`location` points to the function expression or arrow-function initializer,
-not the complete variable declaration. Declarations with non-identifier
-patterns, non-function initializers, or a `null` initializer are ignored.
+Each entry has an `id`, `name`, `owner`, `kind`, a starting `line`, and an
+`endLine`. The `kind` is `"function"` for function declarations and
+function-valued variables, or `"method"` for class methods and function-valued
+object properties. `owner` is `null` for functions and function-valued
+variables. For class methods, it is the enclosing class name; for object
+methods, it is the enclosing object variable name. Anonymous class
+expressions use `"default"`.
+The line range is taken from the declaration, function initializer, or method
+value that was matched.
+
+Declarations with non-identifier variable patterns, non-function
+initializers, computed method keys, or unsupported node shapes are ignored.
+The shared result shape is created by
+[`backend/helper/resultHelper.js`](../backend/helper/resultHelper.js).
 `visit` does not resolve imports or build call-graph edges.
 
 ### `isNode(value)`
@@ -178,7 +265,7 @@ import visit from "./backend/helper/visitChild.js";
 const result = await Parse("./src/index.js");
 
 if (result.ast) {
-  const functions = visit(result.ast);
+  const functions = visit(result.ast, "src/index.js");
   console.log(functions);
 }
 ```
