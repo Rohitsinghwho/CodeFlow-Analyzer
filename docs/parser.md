@@ -116,25 +116,42 @@ than for opening files directly.
 
 `visit` is the default export from
 [`backend/helper/visitChild.js`](../backend/helper/visitChild.js). It performs
-a recursive depth-first traversal of an AST and returns an array containing the
-`type` of every visited AST node:
+a recursive depth-first traversal of an AST and returns an array describing
+function declarations assigned to variables:
 
 ```js
-const nodeTypes = visit(ast);
+const functions = visit(ast);
 ```
 
 For each node, the internal `visitChilds` function:
 
-1. records the current node's `type`;
-2. examines every property with `Object.values`;
-3. recursively visits AST nodes inside arrays; and
-4. recursively visits direct AST-node properties.
+1. checks whether the node is a `VariableDeclarator`;
+2. selects declarations whose identifier is a simple `Identifier`;
+3. selects declarations initialized with an `ArrowFunctionExpression` or
+   `FunctionExpression`;
+4. records the identifier name and the initializer's `loc` source-location
+   object; and
+5. recursively visits AST nodes inside arrays and direct AST-node properties.
 
 This allows the traversal to work with Acorn's nested node structure without
 hard-coding fields such as `body`, `declarations`, or `expression`.
 
-`visit` is a general inspection utility. It currently records node types only;
-it does not extract functions, resolve imports, or build call-graph edges.
+The returned entries have this shape:
+
+```js
+{
+  name: "render",
+  location: {
+    start: { line: 3, column: 15 },
+    end: { line: 3, column: 31 }
+  }
+}
+```
+
+`location` points to the function expression or arrow-function initializer,
+not the complete variable declaration. Declarations with non-identifier
+patterns, non-function initializers, or a `null` initializer are ignored.
+`visit` does not resolve imports or build call-graph edges.
 
 ### `isNode(value)`
 
@@ -161,8 +178,8 @@ import visit from "./backend/helper/visitChild.js";
 const result = await Parse("./src/index.js");
 
 if (result.ast) {
-  const nodeTypes = visit(result.ast);
-  console.log(nodeTypes);
+  const functions = visit(result.ast);
+  console.log(functions);
 }
 ```
 

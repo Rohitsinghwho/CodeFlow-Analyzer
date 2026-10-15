@@ -1,10 +1,11 @@
 import isNode from "./checkNode.js";
 
 /**
- * Traverses an AST depth-first and collects the type of every AST node.
+ * Traverses an AST depth-first and collects function variable declarations.
  *
  * @param {object} ast The root AST node to traverse.
- * @returns {string[]} The AST node types in traversal order.
+ * @returns {{name: string, location: object}[]} Function names and source
+ * locations in traversal order.
  */
 function visit(ast) {
   let result = [];
@@ -13,7 +14,7 @@ function visit(ast) {
    * Recursively visits an AST node and its direct or array-based child nodes.
    *
    * @param {object} ast The AST node currently being visited.
-   * @returns {void} This helper updates the outer node-type result.
+   * @returns {void} This helper updates the outer result.
    */
   function visitChilds(ast) {
 
