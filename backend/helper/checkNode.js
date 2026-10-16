@@ -16,4 +16,32 @@ function isNode(value) {
   return false;
 }
 
+/**
+ * Returns the direct AST child nodes of a node.
+ *
+ * @param {object} node An AST node.
+ * @returns {object[]} The direct child nodes in property order.
+ */
+function childNodes(node) {
+  return Object.values(node).flatMap((value) => {
+    const values = Array.isArray(value) ? value : [value];
+    return values.filter(isNode);
+  });
+}
+
+/**
+ * Checks whether a node represents a function expression.
+ *
+ * @param {*} node A value to validate.
+ * @returns {boolean} True for arrow and function expressions.
+ */
+function isFunctionNode(node) {
+  return (
+    isNode(node) &&
+    (node.type === "ArrowFunctionExpression" ||
+      node.type === "FunctionExpression")
+  );
+}
+
+export { childNodes, isFunctionNode };
 export default isNode;

@@ -112,6 +112,7 @@ declarations from that AST. It currently handles:
 | `VariableDeclarator` with a `FunctionExpression` initializer | `"function"` | The variable name, a `null` owner, and the function-expression start and end lines. |
 | Non-computed `MethodDefinition` with an identifier key | `"method"` | The method name, its enclosing class as `owner`, and the method value start and end lines. |
 | Non-computed object `Property` with an identifier key and function value | `"method"` | The property name, its enclosing object variable as `owner` when available, and the function value start and end lines. |
+| `CallExpression` with function arguments | `"callback"` | One callback record per arrow or function-expression argument, named `anonymous@<line>`. |
 
 Variable declarations are included only when the declared name is a simple
 identifier. Destructuring patterns, variables initialized with values other
@@ -119,10 +120,12 @@ than arrow or function expressions, and variables with no initializer are not
 recorded. Computed method and object-property names are also not recorded.
 
 The traversal is recursive and visits nested functions, classes, arrays, and
-other AST child nodes in depth-first order. It records source line ranges but
-does not currently extract imports, function calls, parameters, return values,
-class fields, or call-graph relationships. These constructs remain available
-in the Acorn AST for future analysis.
+other AST child nodes in depth-first order. Function forms are selected through
+a node-type rule table, while the walker handles ownership, IDs, result
+creation, and recursion. It records source line ranges but does not currently
+extract imports, function calls beyond callback arguments, parameters, return
+values, class fields, or call-graph relationships. These constructs remain
+available in the Acorn AST for future analysis.
 
 The sample input
 [`sample-project/tiny.js`](../sample-project/tiny.js) demonstrates these
@@ -167,7 +170,7 @@ const functions = visit(ast, relativePath);
 analysis root. It is used as the first part of each result ID so declarations
 from different files can be distinguished.
 
-For each node, the internal `visitChilds` function:
+For each node, the walker:
 
 1. records `FunctionDeclaration` nodes, using `"default"` when the declaration
    has no identifier;
@@ -180,6 +183,11 @@ For each node, the internal `visitChilds` function:
    whose value is an arrow or function expression, assigning the enclosing
    object variable as `owner` when available; and
 5. recursively visits AST nodes inside arrays and direct AST-node properties.
+
+Callback arguments are recorded as `"callback"` entries with the enclosing
+class or object owner when one is available. The node helpers isolate AST
+child discovery and function-expression checks from the rules, so adding a new
+function form requires a rule and one entry in the rule table.
 
 This allows the traversal to work with Acorn's nested node structure without
 hard-coding fields such as `body`, `declarations`, or `expression`.
@@ -199,11 +207,13 @@ For methods, the owner is included in the name portion:
 ```
 
 The visitor keeps an `IdSet` for the current file. When an ID has already
-been used, the new result receives the declaration's start line as a suffix:
+been used, the new result receives the declaration's start line as a suffix.
+If that suffix is also already used, an additional numeric suffix is added:
 
 ```text
 sample-project/tiny.js#handler
 sample-project/tiny.js#handler@12
+sample-project/tiny.js#handler@12-2
 ```
 
 This preserves both declarations while keeping IDs stable and readable. The
@@ -226,10 +236,11 @@ The returned entries have this shape:
 
 Each entry has an `id`, `name`, `owner`, `kind`, a starting `line`, and an
 `endLine`. The `kind` is `"function"` for function declarations and
-function-valued variables, or `"method"` for class methods and function-valued
-object properties. `owner` is `null` for functions and function-valued
-variables. For class methods, it is the enclosing class name; for object
-methods, it is the enclosing object variable name. Anonymous class
+function-valued variables, `"method"` for class methods and function-valued
+object properties, or `"callback"` for function expressions passed as call
+arguments. `owner` is `null` for functions and function-valued variables. For
+class methods, it is the enclosing class name; for object methods, it is the
+enclosing object variable name. Anonymous class
 expressions use `"default"`.
 The line range is taken from the declaration, function initializer, or method
 value that was matched.

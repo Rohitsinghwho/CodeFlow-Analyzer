@@ -1,156 +1,107 @@
-import isNode from "./checkNode.js";
+import isNode, { childNodes, isFunctionNode } from "./checkNode.js";
+import functionRules from "./functionRules.js";
 import addResult from "./resultHelper.js";
 
 /**
- * Traverses an AST depth-first and collects function declarations, functions
- * assigned to variables, and non-computed class methods. Each match is
- * normalized into a result containing its name, owner, kind, and line range.
+ * @typedef {object} FunctionRecord
+ * @property {string} id
+ * @property {string} name
+ * @property {?string} owner
+ * @property {"function"|"method"|"callback"} kind
+ * @property {number} line
+ * @property {number} endLine
+ */
+
+/**
+ * Traverses an AST depth-first and collects functions defined by supported
+ * syntax forms.
  *
  * @param {object} ast The root AST node to traverse.
- * @param {string} RelativePath The path prefix used to create unique result
- * identifiers.
- * @returns {{id: string, name: string, owner: (?string), kind: ("function"|"method"), line: number, endLine: number}[]}
- * Collected declarations and methods in depth-first traversal order.
+ * @param {string} relativePath The path prefix used to create unique IDs.
+ * @returns {FunctionRecord[]} Collected functions in depth-first order.
  */
-function visit(ast,RelativePath) {
-  let result = [];
+function visit(ast, relativePath) {
+  /** @type {FunctionRecord[]} */
+  const result = [];
+  const ids = new Set();
 
-  /**
-   * Recursively visits an AST node and its direct or array-based AST children,
-   * carrying the enclosing class or object owner to method results.
-   *
-   * @param {object} ast The AST node currently being visited.
-   * @param {?string} owner The enclosing class or object name, or null outside
-   * a class or object.
-   * @returns {void} Appends matching declarations and methods to the result.
-   */
+  function buildID(name, owner, lineNumber) {
+    const baseID =
+      owner !== null
+        ? `${relativePath}#${owner}.${name}`
+        : `${relativePath}#${name}`;
+    let id = baseID;
+    let suffix = 0;
 
-  const IdSet=new Set();
-
-
-  function buildID(name,owner,lineNumber){
-    let id = owner !== null
-      ? `${RelativePath}#${owner}.${name}`
-      : `${RelativePath}#${name}`;
-
-    if (IdSet.has(id)) {
-      id += `@${lineNumber}`;
+    while (ids.has(id)) {
+      suffix += 1;
+      id = `${baseID}@${lineNumber}${suffix === 1 ? "" : `-${suffix}`}`;
     }
 
-    IdSet.add(id);
     return id;
   }
 
+  /**
+   * Records a rule description using the current owner.
+   *
+   * @param {{name: string, kind: ("function"|"method"|"callback"), fnNode: object}} description
+   * @param {?string} owner
+   */
+  function record(description, owner) {
+    const { name, kind, fnNode } = description;
+    const resultOwner = kind === "function" ? null : owner;
+    const line = fnNode.loc.start.line;
+    const id = buildID(name, resultOwner, line);
+    ids.add(id);
+    result.push(
+      addResult(id, name, resultOwner, kind, line, fnNode.loc.end.line),
+    );
+  }
 
-  function visitChilds(ast, owner = null) {
-    switch (ast.type) {
-      case "FunctionDeclaration": {
-        const id = buildID(
-          ast.id?.name ?? "default",
-          null,
-          ast.loc.start.line,
-        );
-        result.push(
-          addResult(
-            id,
-            ast.id?.name ?? "default",
-            null,
-            "function",
-            ast.loc.start.line,
-            ast.loc.end.line,
-          ),
-        );
-      }
-      break;
-
-      case "VariableDeclarator": {
-        if (
-          ast.id.type === "Identifier" &&
-          ast.init !== null &&
-          (ast.init.type === "ArrowFunctionExpression" ||
-            ast.init.type === "FunctionExpression")
-        ) {
-          const id = buildID(ast.id.name, null, ast.init.loc.start.line);
-          result.push(
-            addResult(
-              id,
-              ast.id.name,
-              null,
-              "function",
-              ast.init.loc.start.line,
-              ast.init.loc.end.line,
-            ),
-          );
-        }
-        break;
-      }
-
-      case "MethodDefinition": {
-        if (!ast.computed && ast.key.type === "Identifier") {
-          const id = buildID(
-            ast.key.name,
-            owner,
-            ast.value.loc.start.line,
-          );
-          result.push(
-            addResult(
-              id,
-              ast.key.name,
-              owner,
-              "method",
-              ast.value.loc.start.line,
-              ast.value.loc.end.line,
-            ),
-          );
-        }
-        break;
-      }
-
-      case "Property": {
-        const isFn =
-          ast.value.type === "FunctionExpression" ||
-          ast.value.type === "ArrowFunctionExpression";
-        if (isFn && !ast.computed && ast.key.type === "Identifier") {
-          const id = buildID(
-            ast.key.name,
-            owner,
-            ast.value.loc.start.line,
-          );
-          result.push(
-            addResult(
-              id,
-              ast.key.name,
-              owner,
-              "method",
-              ast.value.loc.start.line,
-              ast.value.loc.end.line,
-            ),
-          );
-        }
-        break;
-      }
+  function getNextOwner(node, owner) {
+    if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
+      return node.id?.name ?? "default";
     }
 
-    let nextOwner = owner;
-    if (ast.type === "ClassDeclaration" || ast.type === "ClassExpression") {
-      nextOwner = ast.id?.name ?? "default";
-    } else if (
-      ast.type === "VariableDeclarator" &&
-      ast.id.type === "Identifier" &&
-      ast.init?.type === "ObjectExpression"
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id.type === "Identifier" &&
+      node.init?.type === "ObjectExpression"
     ) {
-      nextOwner = ast.id.name; // methods inside get owner "obj"
+      return node.id.name;
     }
 
-    for (const value of Object.values(ast)) {
-      const children = Array.isArray(value) ? value : [value];
-      for (const child of children) {
-        if (isNode(child)) visitChilds(child, nextOwner,RelativePath);
+    return owner;
+  }
+
+  /**
+   * @param {object} node
+   * @param {{owner: (?string), currentFn: (?object)}} context
+   */
+  function visitChild(node, context) {
+    const rule = functionRules[node.type];
+    if (rule) {
+      for (const description of rule(node)) {
+        record(description, context.owner);
       }
+    }
+
+    const nextContext = {
+      owner: getNextOwner(node, context.owner),
+      currentFn: isFunctionNode(node) ? node : context.currentFn,
+    };
+
+    for (const child of childNodes(node)) {
+      visitChild(child, nextContext);
     }
   }
-  visitChilds(ast);
+
+  if (isNode(ast)) {
+    visitChild(ast, { owner: null, currentFn: null });
+  }
+
   return result;
 }
 
+export { visit };
 export default visit;
