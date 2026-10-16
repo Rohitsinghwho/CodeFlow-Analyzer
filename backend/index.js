@@ -12,8 +12,9 @@ const rel=path.relative(root,file).split(path.sep).join('/')
 const result=await Parse(pathh);
 // console.log(JSON.stringify(result.ast,null,2));
 
-const nodes=visit(result.ast,rel);
-console.log(nodes)
+const { functions, calls } =visit(result.ast,rel);
+console.log(functions);
+console.log(calls);
 app.listen(5000,()=>{
     console.log('server is running!')
 })

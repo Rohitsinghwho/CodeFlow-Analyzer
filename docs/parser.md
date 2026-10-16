@@ -113,6 +113,7 @@ declarations from that AST. It currently handles:
 | Non-computed `MethodDefinition` with an identifier key | `"method"` | The method name, its enclosing class as `owner`, and the method value start and end lines. |
 | Non-computed object `Property` with an identifier key and function value | `"method"` | The property name, its enclosing object variable as `owner` when available, and the function value start and end lines. |
 | `CallExpression` with function arguments | `"callback"` | One callback record per arrow or function-expression argument, named `anonymous@<line>`. |
+| `NewExpression` with function arguments | `"callback"` | One callback record per arrow or function-expression argument passed to a constructor call. |
 
 Variable declarations are included only when the declared name is a simple
 identifier. Destructuring patterns, variables initialized with values other
@@ -122,10 +123,10 @@ recorded. Computed method and object-property names are also not recorded.
 The traversal is recursive and visits nested functions, classes, arrays, and
 other AST child nodes in depth-first order. Function forms are selected through
 a node-type rule table, while the walker handles ownership, IDs, result
-creation, and recursion. It records source line ranges but does not currently
-extract imports, function calls beyond callback arguments, parameters, return
-values, class fields, or call-graph relationships. These constructs remain
-available in the Acorn AST for future analysis.
+creation, call recording, and recursion. It records source line ranges and
+static call descriptions, but does not resolve imports or connect calls to
+definitions across files. Parameters, return values, class fields, and other
+unsupported constructs remain available in the Acorn AST for future analysis.
 
 The sample input
 [`sample-project/tiny.js`](../sample-project/tiny.js) demonstrates these
@@ -158,12 +159,13 @@ than for opening files directly.
 
 `visit` is the default export from
 [`backend/helper/visitChild.js`](../backend/helper/visitChild.js). It performs
-a recursive depth-first traversal of an AST and returns an array describing
-the function-like declarations listed in
-[Current analysis coverage](#current-analysis-coverage):
+a recursive depth-first traversal of an AST and returns an object containing
+function records and static call descriptions. See
+[Current analysis coverage](#current-analysis-coverage) for the supported
+function forms:
 
 ```js
-const functions = visit(ast, relativePath);
+const { functions, calls } = visit(ast, relativePath);
 ```
 
 `relativePath` is the normalized path of the source file relative to the
@@ -182,15 +184,86 @@ For each node, the walker:
 4. records non-computed `Property` nodes whose key is an `Identifier` and
    whose value is an arrow or function expression, assigning the enclosing
    object variable as `owner` when available; and
-5. recursively visits AST nodes inside arrays and direct AST-node properties.
+5. records supported calls and call arguments using the call-rule table; and
+6. recursively visits AST nodes inside arrays and direct AST-node properties.
 
 Callback arguments are recorded as `"callback"` entries with the enclosing
-class or object owner when one is available. The node helpers isolate AST
-child discovery and function-expression checks from the rules, so adding a new
-function form requires a rule and one entry in the rule table.
+class or object owner when one is available. Function declarations and
+function-valued variables intentionally retain `owner: null`, including when
+they are nested inside a method or class. This preserves the original result
+and ID behavior. The node helpers isolate AST child discovery and
+function-expression checks from the rules, so adding a new function form
+requires a rule and one entry in the rule table.
 
 This allows the traversal to work with Acorn's nested node structure without
 hard-coding fields such as `body`, `declarations`, or `expression`.
+
+### Walker design and helper modules
+
+The analysis is split into small responsibilities so a new AST form can be
+added without changing traversal, ownership, or result-building code:
+
+- [`backend/helper/checkNode.js`](../backend/helper/checkNode.js) contains
+  `isNode`, `childNodes`, and `isFunctionNode`.
+  - `isNode` guards recursive traversal.
+  - `childNodes` normalizes direct node properties and node arrays into one
+    list, avoiding hard-coded AST field names.
+  - `isFunctionNode` centralizes the ArrowFunctionExpression and
+    FunctionExpression check used by declaration, property, and callback
+    rules.
+- [`backend/helper/functionRules.js`](../backend/helper/functionRules.js)
+  contains one rule per supported function form. Each rule only examines a
+  node and returns descriptions shaped as `{ name, kind, fnNode }`. Rules do
+  not build IDs, push results, or determine owners, which makes them
+  independently readable and testable.
+- The `functionRules` lookup object maps AST node types such as
+  `FunctionDeclaration`, `VariableDeclarator`, `MethodDefinition`,
+  `Property`, `CallExpression`, and `NewExpression` to their rules. The table
+  replaces a growing conditional dispatch block: supporting another function
+  form requires adding a rule and one table entry.
+- [`backend/helper/callRules.js`](../backend/helper/callRules.js) applies the
+  same lookup-table approach to calls. It extracts identifier and
+  non-computed member-expression callees, records whether a call uses
+  `this`, and identifies referenced callees passed as non-function arguments.
+- [`backend/helper/resultHelper.js`](../backend/helper/resultHelper.js)
+  remains responsible for constructing the normalized function record. The
+  walker supplies the ID, name, owner, kind, and source line range.
+
+The walker passes one context object through recursion:
+
+```js
+{ owner, currentFnId }
+```
+
+`owner` tracks the enclosing class or object for methods and callbacks.
+`currentFnId` tracks the function that owns a call, allowing nested calls to
+be attributed to the nearest function. A `Map` named `idByFnNode` connects
+each function AST node to the ID assigned when it is recorded. This avoids
+recomputing IDs while descending into the function body and ensures call
+records use the same IDs as function records. The context object leaves room
+for future traversal state without adding more recursive parameters.
+
+The `record` helper centralizes ID creation, duplicate handling, map
+registration, and result insertion. The `ids` `Set` ensures IDs remain unique.
+If the base ID and its line-number suffix are already taken, the walker adds
+an additional numeric suffix.
+
+Call results are stored in the `calls` array returned by `visit`:
+
+```js
+{
+  caller: "src/index.js#render",
+  calleeName: "save",
+  objectName: "db",
+  kind: "call",
+  viaThis: false,
+  line: 12
+}
+```
+
+Calls made outside a function use
+`<relativePath>#<top-level>` as their caller. Call kinds include `"call"`,
+`"new"`, and `"ref"` for a referenced callable passed as an argument.
 
 ### Result IDs and duplicate declarations
 
@@ -249,7 +322,7 @@ Declarations with non-identifier variable patterns, non-function
 initializers, computed method keys, or unsupported node shapes are ignored.
 The shared result shape is created by
 [`backend/helper/resultHelper.js`](../backend/helper/resultHelper.js).
-`visit` does not resolve imports or build call-graph edges.
+`visit` does not resolve imports or link call descriptions to definitions.
 
 ### `isNode(value)`
 
@@ -265,6 +338,14 @@ The check prevents traversal from treating primitive AST properties,
 metadata, or `null` values as child nodes. Both direct child properties and
 items inside child arrays are passed through `isNode` before recursion.
 
+### `childNodes(node)` and `isFunctionNode(node)`
+
+`childNodes` and `isFunctionNode` are named exports from
+[`backend/helper/checkNode.js`](../backend/helper/checkNode.js). `childNodes`
+returns only direct AST children while preserving Acorn property order.
+`isFunctionNode` returns `true` only for arrow and function expressions. They
+are shared by the rules and walker so node-shape checks stay consistent.
+
 ## Example
 
 The parser and traversal utility can be used together as follows:
@@ -276,8 +357,8 @@ import visit from "./backend/helper/visitChild.js";
 const result = await Parse("./src/index.js");
 
 if (result.ast) {
-  const functions = visit(result.ast, "src/index.js");
-  console.log(functions);
+  const { functions, calls } = visit(result.ast, "src/index.js");
+  console.log(functions, calls);
 }
 ```
 

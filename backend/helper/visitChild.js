@@ -1,6 +1,7 @@
-import isNode, { childNodes, isFunctionNode } from "./checkNode.js";
+import isNode, { childNodes } from "./checkNode.js";
 import functionRules from "./functionRules.js";
 import addResult from "./resultHelper.js";
+import callRules from "./callRules.js";
 
 /**
  * @typedef {object} FunctionRecord
@@ -23,7 +24,9 @@ import addResult from "./resultHelper.js";
 function visit(ast, relativePath) {
   /** @type {FunctionRecord[]} */
   const result = [];
+  const calls = [];
   const ids = new Set();
+  const idByFnNode = new Map();
 
   function buildID(name, owner, lineNumber) {
     const baseID =
@@ -53,9 +56,28 @@ function visit(ast, relativePath) {
     const line = fnNode.loc.start.line;
     const id = buildID(name, resultOwner, line);
     ids.add(id);
+    //keeping the reference of the current parent function.
+    idByFnNode.set(fnNode, id);
     result.push(
       addResult(id, name, resultOwner, kind, line, fnNode.loc.end.line),
     );
+  }
+
+  /**
+   * Records one call edge from the given caller.
+   * @param {{calleeName: string, viaThis: boolean, kind: string}} description
+   * @param {object} node The call node (used for the line number).
+   * @param {?string} callerId ID of the enclosing function, or null at top level.
+   */
+  function recordCall(description, node, callerId) {
+    calls.push({
+      caller: callerId ?? `${relativePath}#<top-level>`,
+      calleeName: description.calleeName,
+      objectName:description.objectName,
+      kind: description.kind,
+      viaThis: description.viaThis,
+      line: node.loc.start.line,
+    });
   }
 
   function getNextOwner(node, owner) {
@@ -76,7 +98,7 @@ function visit(ast, relativePath) {
 
   /**
    * @param {object} node
-   * @param {{owner: (?string), currentFn: (?object)}} context
+   * @param {{owner: (?string), currentFnId: (?string)}} context
    */
   function visitChild(node, context) {
     const rule = functionRules[node.type];
@@ -88,19 +110,25 @@ function visit(ast, relativePath) {
 
     const nextContext = {
       owner: getNextOwner(node, context.owner),
-      currentFn: isFunctionNode(node) ? node : context.currentFn,
+      currentFnId: idByFnNode.get(node)??context.currentFnId,
     };
-
+    const callRule=callRules[node.type];
+    if(callRule){
+      for(const description of callRule(node)){
+        recordCall(description,node,nextContext.currentFnId);
+      }
+    }
     for (const child of childNodes(node)) {
       visitChild(child, nextContext);
     }
   }
 
   if (isNode(ast)) {
-    visitChild(ast, { owner: null, currentFn: null });
+    let topLevel=`${relativePath}#<top-level>`
+    visitChild(ast, { owner: null, currentFnId: topLevel });
   }
 
-  return result;
+  return { functions: result, calls };
 }
 
 export { visit };

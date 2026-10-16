@@ -14,7 +14,11 @@ function variableDeclaratorRule(node) {
   if (node.id.type !== "Identifier" || !isFunctionNode(node.init)) {
     return [];
   }
-
+  if(node.init==='ClassExpression'){
+    return [{
+      name:node.id.name
+    }]
+  }
   return [
     {
       name: node.id.name,
@@ -66,12 +70,16 @@ function callbackRule(node) {
     }));
 }
 
+
+
 const functionRules = {
   FunctionDeclaration: functionDeclarationRule,
   VariableDeclarator: variableDeclaratorRule,
   MethodDefinition: methodDefinitionRule,
   Property: propertyRule,
   CallExpression: callbackRule,
+  NewExpression:callbackRule
+
 };
 
 export {
