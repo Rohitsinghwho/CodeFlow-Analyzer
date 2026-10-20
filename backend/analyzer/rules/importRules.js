@@ -65,7 +65,7 @@ function requireRule(node) {
   let source = getRequireSource(node.init);
   let member = null;
 
-  if (source === null && node.init.type === "MemberExpression") {
+  if (source === null && node?.init?.type === "MemberExpression") {
     source = getRequireSource(node.init.object);
     if (
       source !== null &&
