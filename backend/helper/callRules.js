@@ -2,7 +2,7 @@ import { isFunctionNode } from "./checkNode.js";
 /**
  * Reads the callee name from a call's callee node.
  * @param {object} callee The `callee` node of a call or new expression.
- * @returns {?{calleeName: string, objectName, viaThis: boolean}} null when unreadable.
+ * @returns {?{calleeName: string, objectName, viaThis: boolean}} null when unreadable..
  */
 function getCalleeInfo(callee) {
   if (callee.type === "Identifier") {
