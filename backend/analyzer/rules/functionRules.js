@@ -1,4 +1,4 @@
-import { isFunctionNode } from "./checkNode.js";
+import { isFunctionNode } from "../../utils/index.js";
 
 function functionDeclarationRule(node) {
   return [
@@ -13,11 +13,6 @@ function functionDeclarationRule(node) {
 function variableDeclaratorRule(node) {
   if (node.id.type !== "Identifier" || !isFunctionNode(node.init)) {
     return [];
-  }
-  if(node.init==='ClassExpression'){
-    return [{
-      name:node.id.name
-    }]
   }
   return [
     {
@@ -69,6 +64,7 @@ function callbackRule(node) {
       fnNode,
     }));
 }
+
 
 
 

@@ -1,5 +1,5 @@
 import * as acorn from "acorn"
-import Read from '../helper/readFile.js';
+import { Read } from "../utils/index.js";
 
 
 /**
@@ -21,7 +21,6 @@ async function Parse(path){
             }
             const ast= acorn.parse(contents,options);
             result.ast=ast;
-            // console.log(JSON.stringify(ast,null,2));
             return result;
         }
     

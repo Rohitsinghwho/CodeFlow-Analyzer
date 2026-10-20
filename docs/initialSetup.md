@@ -70,7 +70,7 @@ A reasonable path: **prototype the first screen in vanilla JS** to understand th
 callgraph-app/
   backend/
     scanner        find source files
-    parser         one file -> functions, calls, imports
+    parser         one file -> functions, calls, imports, exports
     linker         connect calls to definitions across files
     graph          callers, callees, path queries
     api            HTTP endpoints
@@ -202,7 +202,7 @@ Check every edge by hand. Then run on a real open-source project and compare aga
 
 ### Step 17: Improve what matters most
 In order of value:
-1. Handle more syntax (TypeScript, classes, exports, JSX).
+1. Handle more syntax (TypeScript, JSX, and additional export forms).
 2. Speed: parse in parallel, cache results by file content hash, re-parse only changed files.
 3. Better accuracy for method calls using type information (for example the TypeScript compiler API).
 4. Remember the last analyzed project; add a "re-analyze" button.

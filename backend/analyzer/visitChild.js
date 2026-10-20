@@ -1,7 +1,6 @@
-import isNode, { childNodes } from "./checkNode.js";
-import functionRules from "./functionRules.js";
-import addResult from "./resultHelper.js";
-import callRules from "./callRules.js";
+import { isNode, childNodes } from "../utils/index.js";
+import { functionRules, callRules, importRules, exportRules } from "./rules/index.js";
+import { addResult } from "../parser/index.js";
 
 /**
  * @typedef {object} FunctionRecord
@@ -14,17 +13,24 @@ import callRules from "./callRules.js";
  */
 
 /**
- * Traverses an AST depth-first and collects functions defined by supported
- * syntax forms.
+ * Traverses an AST depth-first and collects functions, calls, imports, and
+ * exports supported by the analyzer rule tables.
  *
  * @param {object} ast The root AST node to traverse.
  * @param {string} relativePath The path prefix used to create unique IDs.
- * @returns {FunctionRecord[]} Collected functions in depth-first order.
+ * @returns {{
+ *   functions: FunctionRecord[],
+ *   calls: object[],
+ *   imports: object[],
+ *   exports: object[]
+ * }} Analysis results grouped by record type.
  */
 function visit(ast, relativePath) {
   /** @type {FunctionRecord[]} */
   const result = [];
   const calls = [];
+  const imports=[];
+  const exports=[];
   const ids = new Set();
   const idByFnNode = new Map();
 
@@ -56,7 +62,7 @@ function visit(ast, relativePath) {
     const line = fnNode.loc.start.line;
     const id = buildID(name, resultOwner, line);
     ids.add(id);
-    //keeping the reference of the current parent function.
+    // Keep the function-to-ID mapping so nested calls use the recorded ID.
     idByFnNode.set(fnNode, id);
     result.push(
       addResult(id, name, resultOwner, kind, line, fnNode.loc.end.line),
@@ -80,6 +86,22 @@ function visit(ast, relativePath) {
     });
   }
 
+
+  function recordImports(description){
+    imports.push({
+      localName:description.localName,
+      importedName:description.importedName,
+      source:description.source,
+      external:description.external
+    })
+  }
+
+  function recordExports(description){
+    exports.push({
+      exportedName:description.exportedName,
+      localName:description.localName 
+    })
+  }
   function getNextOwner(node, owner) {
     if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
       return node.id?.name ?? "default";
@@ -118,6 +140,20 @@ function visit(ast, relativePath) {
         recordCall(description,node,nextContext.currentFnId);
       }
     }
+
+    const importRule= importRules[node.type];
+    if(importRule){
+      for(const description of importRule(node)){
+         recordImports(description);
+      }
+    }
+
+    const exportRule= exportRules[node.type];
+    if(exportRule){
+      for(const description of exportRule(node)){
+        recordExports(description);
+      }
+    }
     for (const child of childNodes(node)) {
       visitChild(child, nextContext);
     }
@@ -128,7 +164,7 @@ function visit(ast, relativePath) {
     visitChild(ast, { owner: null, currentFnId: topLevel });
   }
 
-  return { functions: result, calls };
+  return { functions: result, calls , imports, exports };
 }
 
 export { visit };

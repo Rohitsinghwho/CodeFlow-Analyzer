@@ -1,7 +1,9 @@
 # Scanner
 
 The scanner is implemented in
-[`backend/scanner/scanner.js`](../backend/scanner/scanner.js). It recursively
+[`backend/scanner/scanner.js`](../backend/scanner/scanner.js) and re-exported by
+[`backend/scanner/index.js`](../backend/scanner/index.js) and
+[`backend/utils/index.js`](../backend/utils/index.js). It recursively
 walks a source directory and returns the JavaScript files that should be
 processed by CodeFlow.
 

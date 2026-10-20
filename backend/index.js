@@ -1,6 +1,6 @@
 import express from 'express'
-import Parse from './parser/parser.js';
-import visit from './helper/visitChild.js';
+import { Parse } from './parser/index.js';
+import { visit } from './analyzer/index.js';
 import path from 'path';
 
 
@@ -10,11 +10,8 @@ const root='D:/CodeFlow';
 const file=path.join(root,'sample-project/tiny.js');
 const rel=path.relative(root,file).split(path.sep).join('/')
 const result=await Parse(pathh);
-// console.log(JSON.stringify(result.ast,null,2));
-
-const { functions, calls } =visit(result.ast,rel);
-console.log(functions);
-console.log(calls);
+const { functions, calls ,imports ,exports} =visit(result.ast,rel);
+console.log(exports)
 app.listen(5000,()=>{
     console.log('server is running!')
 })

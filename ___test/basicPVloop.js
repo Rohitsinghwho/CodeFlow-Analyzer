@@ -1,6 +1,6 @@
-import visit from "../backend/helper/visitChild.js";
-import Parse from "../backend/parser/parser.js";
-import listJsFiles from "../backend/scanner/scanner.js";
+import { visit } from "../backend/analyzer/index.js";
+import { Parse } from "../backend/parser/index.js";
+import { listJsFiles } from "../backend/utils/index.js";
 import path from "node:path";
 const rootPath = "D:/JavaScript-Projects";
 const sourcePath = "D:/JavaScript-Projects/url-shortner/";

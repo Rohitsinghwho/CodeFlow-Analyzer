@@ -1,4 +1,4 @@
-import { isFunctionNode } from "./checkNode.js";
+import { isFunctionNode } from "../../utils/index.js";
 /**
  * Reads the callee name from a call's callee node.
  * @param {object} callee The `callee` node of a call or new expression.
