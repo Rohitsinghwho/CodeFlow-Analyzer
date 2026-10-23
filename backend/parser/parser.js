@@ -1,46 +1,26 @@
-import * as acorn from "acorn"
-import { Read } from "../utils/index.js";
+import * as acorn from "acorn";
+import fs from "fs/promises";
 
-
-/**
- * Reads and parses a JavaScript module into an Acorn AST.
- *
- * @param {string} path The path of the JavaScript file to parse.
- * @returns {Promise<{ast: object}|{file: string, error: string}>} The parsed
- * AST or a structured error result.
- */
-async function Parse(path){
+class Parser {
+  async parse(filePath) {
     try {
-        const result={};
-        const contents= await Read(path);
-        if(contents!==null){
-            const options={
-                ecmaVersion:'latest',
-                locations:true,
-                sourceType: 'module'
-            }
-            const ast= acorn.parse(contents,options);
-            result.ast=ast;
-            return result;
-        }
-    
-        result.file = path;
-        result.error='Failed to read the file';
-        return result;
-        
+      const contents = await fs.readFile(filePath, { encoding: "utf-8" });
+      return {
+        ast: acorn.parse(contents, {
+          ecmaVersion: "latest",
+          locations: true,
+          sourceType: "module",
+        }),
+      };
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const line = error?.loc?.line;
-        const column = error?.loc?.column;
-        const location = line === undefined
-            ? ''
-            : ` (line ${line}, column ${column ?? 0})`;
-
-        return {
-            file: path,
-            error: `${message}${location}`,
-        };
+      const message = error instanceof Error ? error.message : String(error);
+      const line = error?.loc?.line;
+      const column = error?.loc?.column;
+      const location = line === undefined ? "" : ` (line ${line}, column ${column ?? 0})`;
+      return { file: filePath, error: `${message}${location}` };
     }
+  }
 }
 
-export default Parse;
+export default Parser;
+export { Parser };

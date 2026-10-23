@@ -6,22 +6,19 @@ The AST is a structured representation of the source code. Later analysis can
 use it to inspect declarations, imports, exports, calls, and other language
 constructs without trying to interpret the source with regular expressions.
 
-The parser is implemented in
-[`backend/parser/parser.js`](../backend/parser/parser.js) and re-exported by
-[`backend/parser/index.js`](../backend/parser/index.js). It uses the
+The parser is implemented by the [`Parser`](../backend/parser/Parser.js)
+class and exported by [`backend/parser/index.js`](../backend/parser/index.js).
+It uses the
 [`acorn`](../backend/node_modules/acorn) package, which is declared as a
 backend dependency in [`backend/package.json`](../backend/package.json).
 
 ## Parsing flow
 
-The parser implementation default-exports the asynchronous `Parse(path)`
-function, and [`backend/parser/index.js`](../backend/parser/index.js) exposes it
-as the named `Parse` and `parse` exports. Its setup and execution flow is:
+The parser exposes an asynchronous `parse(path)` method. Its setup and
+execution flow is:
 
-1. `Parse` receives the path of one JavaScript file.
-2. It calls the `Read` utility from
-   [`backend/utils/readFile.js`](../backend/utils/readFile.js), exposed through
-   [`backend/utils/index.js`](../backend/utils/index.js).
+1. `parse` receives the path of one JavaScript file.
+2. It reads the file through the parser class.
 3. If the file contents are available, it creates the Acorn parser options.
 4. It calls `acorn.parse(contents, options)` to create the AST.
 5. It returns the AST inside a result object: `{ ast }`.

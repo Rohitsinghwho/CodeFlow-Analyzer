@@ -1,18 +1,15 @@
 # Scanner
 
-The scanner is implemented in
-[`backend/scanner/scanner.js`](../backend/scanner/scanner.js) and re-exported by
-[`backend/scanner/index.js`](../backend/scanner/index.js) and
-[`backend/utils/index.js`](../backend/utils/index.js). It recursively
+The scanner is implemented by the [`Scanner`](../backend/scanner/Scanner.js)
+class and exported by [`backend/scanner/index.js`](../backend/scanner/index.js).
+It recursively
 walks a source directory and returns the JavaScript files that should be
 processed by CodeFlow.
 
-## Exported function
+## `Scanner.scan(dirPath, rootPath)`
 
-### `listJsFiles(dirPath, rootPath)`
-
-`listJsFiles` is the module's default export and returns a promise that
-resolves to a sorted array of relative file paths.
+`scan` returns a promise that resolves to a sorted array of relative file
+paths.
 
 | Parameter | Description |
 |---|---|
