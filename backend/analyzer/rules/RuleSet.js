@@ -12,7 +12,10 @@
 class RuleSet {
   /** Is this node an arrow function or a function expression? */
   isFunctionNode(node) {
-    return node?.type === "ArrowFunctionExpression" || node?.type === "FunctionExpression";
+    return (
+      node?.type === "ArrowFunctionExpression" ||
+      node?.type === "FunctionExpression"
+    );
   }
 
   // ---------------------------------------------------------------- functions
@@ -28,7 +31,9 @@ class RuleSet {
     switch (node.type) {
       case "FunctionDeclaration":
         // `export default function () {}` has no name, so call it "default".
-        return [{ name: node.id?.name ?? "default", kind: "function", fnNode: node }];
+        return [
+          { name: node.id?.name ?? "default", kind: "function", fnNode: node },
+        ];
 
       case "VariableDeclarator":
         // const greet = () => {}
@@ -38,15 +43,26 @@ class RuleSet {
         return [];
 
       case "MethodDefinition":
-        // class A { run() {} }   (names written as [x]() are skipped)
-        if (!node.computed && node.key.type === "Identifier") {
-          return [{ name: node.key.name, kind: "method", fnNode: node.value }];
+        // class A { run() {} }   or   class A { #run() {} }
+        // (names written as [x]() are skipped)
+        if (!node.computed && this.memberName(node.key) !== null) {
+          return [
+            {
+              name: this.memberName(node.key),
+              kind: "method",
+              fnNode: node.value,
+            },
+          ];
         }
         return [];
-
+      
       case "Property":
         // const o = { run() {} }   or   { run: () => {} }
-        if (!node.computed && node.key.type === "Identifier" && this.isFunctionNode(node.value)) {
+        if (
+          !node.computed &&
+          node.key.type === "Identifier" &&
+          this.isFunctionNode(node.value)
+        ) {
           return [{ name: node.key.name, kind: "method", fnNode: node.value }];
         }
         return [];
@@ -86,7 +102,10 @@ class RuleSet {
     // The call itself.
     const callee = this.describeCallee(node.callee);
     if (callee) {
-      calls.push({ ...callee, kind: node.type === "NewExpression" ? "new" : "call" });
+      calls.push({
+        ...callee,
+        kind: node.type === "NewExpression" ? "new" : "call",
+      });
     }
 
     // Functions passed by name as arguments. (Inline functions are already
@@ -117,11 +136,14 @@ class RuleSet {
     const isSimpleMember =
       callee.type === "MemberExpression" &&
       !callee.computed &&
-      callee.property.type === "Identifier";
+      this.memberName(callee.property)!==null;
     if (isSimpleMember) {
       return {
-        calleeName: callee.property.name,
-        objectName: callee.object.type === "Identifier" ? callee.object.name : null,
+        calleeName:this.memberName(callee.property),
+        objectName:
+          callee.object.type === "ThisExpression"
+            ? null
+            : this.nameOfObject(callee.object),
         viaThis: callee.object.type === "ThisExpression",
       };
     }
@@ -151,7 +173,11 @@ class RuleSet {
         } else {
           importedName = specifier.imported.name;
         }
-        return this.makeImport(specifier.local.name, importedName, node.source.value);
+        return this.makeImport(
+          specifier.local.name,
+          importedName,
+          node.source.value,
+        );
       });
     }
 
@@ -211,12 +237,16 @@ class RuleSet {
     if (target.type === "ObjectPattern") {
       // In { y: z } the key "y" is the name in the other file, "z" the local name.
       return target.properties
-        .filter((property) =>
-          property.type === "Property" &&
-          !property.computed &&
-          property.key.type === "Identifier" &&
-          property.value.type === "Identifier")
-        .map((property) => this.makeImport(property.value.name, property.key.name, source));
+        .filter(
+          (property) =>
+            property.type === "Property" &&
+            !property.computed &&
+            property.key.type === "Identifier" &&
+            property.value.type === "Identifier",
+        )
+        .map((property) =>
+          this.makeImport(property.value.name, property.key.name, source),
+        );
     }
 
     return [];
@@ -258,9 +288,17 @@ class RuleSet {
     }
 
     // export function a() {}   /   export class A {}
-    if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
+    if (
+      declaration.type === "FunctionDeclaration" ||
+      declaration.type === "ClassDeclaration"
+    ) {
       return declaration.id
-        ? [{ exportedName: declaration.id.name, localName: declaration.id.name }]
+        ? [
+            {
+              exportedName: declaration.id.name,
+              localName: declaration.id.name,
+            },
+          ]
         : [];
     }
 
@@ -284,13 +322,62 @@ class RuleSet {
   findDefaultExport(node) {
     const declaration = node.declaration;
 
-    if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
-      return [{ exportedName: "default", localName: declaration.id?.name ?? "default" }];
+    if (
+      declaration.type === "FunctionDeclaration" ||
+      declaration.type === "ClassDeclaration"
+    ) {
+      return [
+        {
+          exportedName: "default",
+          localName: declaration.id?.name ?? "default",
+        },
+      ];
     }
     if (declaration.type === "Identifier") {
       return [{ exportedName: "default", localName: declaration.name }];
     }
     return [];
+  }
+
+  /**
+   * A readable name for the part before the dot in `thing.method()`:
+   *   obj.save()          -> "obj"
+   *   this.store.save()   -> "this.store"
+   *   this.#store.save()  -> "this.#store"
+   * Anything else (a[0].save(), getThing().save()) -> "(unknown)".
+   */
+  nameOfObject(object) {
+    //obj
+    if (object.type === "Identifier") {
+      return object.name;
+    }
+
+    //this.store or this.#store
+    const isThisField =
+      object.type === "MemberExpression" &&
+      object.object.type === "ThisExpression" &&
+      !object.computed;
+    if (isThisField) {
+      const property = object.property;
+      if (property.type === "Identifier") {
+        return `this.${property.name}`;
+      }
+      if (property.type === "PrivateIdentifier") {
+        return `this.#${property.name}`;
+      }
+    }
+    return "(unknown)";
+  }
+
+  /**
+   * The name of a method or property, or null if it is not a plain name.
+   *   run   -> "run"
+   *   #run  -> "#run"   (Acorn gives "run" for a PrivateIdentifier, so we add the "#")
+   */
+  memberName(key) {
+    if (key.type === "Identifier") return key.name;
+    if (key.type === "PrivateIdentifier") return `#${key.name}`;
+    return null;
   }
 }
 

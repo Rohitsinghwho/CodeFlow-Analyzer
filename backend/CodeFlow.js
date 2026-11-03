@@ -6,6 +6,7 @@ import Parser from "./parser/Parser.js";
 import Scanner from "./scanner/Scanner.js";
 import RuleSet from "./analyzer/rules/RuleSet.js";
 import Utilities from "./utils/Utilities.js";
+import Graph from "./graph/Graph.js";
 
 /**
  * CodeFlow is the front door of the backend. It wires the pieces together:
@@ -14,6 +15,7 @@ import Utilities from "./utils/Utilities.js";
  *   Parser   -> turns each file into a syntax tree (AST)
  *   Analyzer -> finds functions, calls, imports and exports in each tree
  *   Linker   -> connects those findings across files
+ *   Graph    -> answers callers / callees / path questions (via buildGraph)
  *
  * Every piece can be swapped through the constructor (handy for tests).
  */
@@ -90,6 +92,11 @@ class CodeFlow {
   /** Connect every call to the function it reaches. Pass `fileResults` from analyze(). */
   linkCalls(fileResults) {
     return this.#linker.linkCalls(fileResults);
+  }
+
+  /** Build a Graph (callers, callees, paths) from the analyzed files. */
+  buildGraph(fileResults) {
+    return new Graph(this.linkCalls(fileResults));
   }
 }
 

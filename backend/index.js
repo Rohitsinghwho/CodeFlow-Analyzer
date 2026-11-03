@@ -8,3 +8,4 @@ export { default as Linker } from "./linker/Linker.js";
 export { default as IndexMaps } from "./indexes/IndexMaps.js";
 export { default as RuleSet } from "./analyzer/rules/RuleSet.js";
 export { default as Utilities } from "./utils/Utilities.js";
+export { default as Graph } from "./graph/Graph.js";

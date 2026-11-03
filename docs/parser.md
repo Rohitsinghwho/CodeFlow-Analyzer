@@ -39,18 +39,23 @@ Returns `{ functions, calls, imports, exports }` for one file.
 - Id: `<file>#<name>` for functions, `<file>#<Owner>.<name>` for methods.
   Duplicates get the line appended: `<id>@<line>`.
 - `kind`: `function` (declaration, or arrow/function expression assigned to a
-  variable), `method` (class method or object property function), `callback`
+  variable), `method` (class method, including `#private` ones, or object
+  property function), `callback`
   (inline function passed as an argument, named `anonymous@<line>`).
 - `owner`: the class or object name for methods, otherwise `null`.
+- Private methods keep their `#` in the name: `Analyzer.#visit` has the id
+  `analyzer/Analyzer.js#Analyzer.#visit`.
 - Code outside any function is credited to the caller `<file>#<top-level>`.
 
 ### Calls
 
 `kind` is `call` (`foo()`), `new` (`new Foo()`) or `ref` (a function passed by
 name, as in `arr.map(transform)`). `objectName` is the name before the dot
-(`obj.save()` -> `obj`); `viaThis` is true for `this.save()`. Computed or deeper
-member calls (`a[b]()`, `a.b.c()`) have no `objectName`/name and are skipped when
-the callee cannot be named.
+(`obj.save()` -> `obj`); `viaThis` is true for `this.save()` and
+`this.#save()`. A call through a stored object, such as `this.#linker.save()`,
+gets `objectName: "this.#linker"`; any other object we cannot name gets
+`objectName: "(unknown)"`. Both are later linked as guesses. Computed member
+calls (`a[b]()`) cannot be named and are skipped.
 
 ### Imports and exports
 

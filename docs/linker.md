@@ -44,8 +44,15 @@ It rebuilds the indexes from `fileResults` first. Rules, first match wins:
 1. Plain `name()` matching a top-level function in the same file: certain.
 2. Plain `name()` matching an import of a project file: resolved with
    `resolveModule` + `resolveExport`: certain.
-3. `this.name()` where the caller's class/object also has a method `name`: certain.
-4. `obj.name()`: every method called `name` in the project: guess.
+3. `this.name()` or `this.#name()` where the caller's class/object also has a
+   method `name`: certain.
+4. `obj.name()`, including calls through a stored object like
+   `this.#linker.name()`: every method called `name` in the project: guess.
 5. Otherwise the call is skipped.
 
-`CodeFlow.linkCalls(fileResults)` forwards to this method.
+`CodeFlow.linkCalls(fileResults)` forwards to this method. To search the edges
+(callers, callees, paths) see [graph.md](graph.md).
+
+Known gaps: `new SomeClass()` is not linked to the class (only functions are
+indexed), and a call made inside a callback (for example inside `.map(...)`)
+belongs to the callback, not to the surrounding method.

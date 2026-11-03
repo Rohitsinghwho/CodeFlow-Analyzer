@@ -2,7 +2,7 @@
 
 CodeFlow reads a JavaScript project and works out **which function calls which**.
 The backend does this in four steps. Each step is one class, and `CodeFlow`
-runs them in order.
+runs them in order. A fifth class, `Graph`, then answers questions about the result.
 
 ## The big picture
 
@@ -27,6 +27,10 @@ runs them in order.
                                       |
                                       v
                           edges: main.js#main  --calls-->  c.js#init
+                                      |
+                                      v
+                    5. Graph    : "who calls X? what does X call? path from A to B?"
+                             built with CodeFlow.buildGraph(fileResults)
 ```
 
 Steps 2 and 3 run once per file. Step 4 runs once, after every file has been
@@ -44,6 +48,7 @@ analyzed, because it needs to see all files together.
 | **Utilities** | `backend/utils/Utilities.js` | Small tree helpers (`isNode`, `childNodes`) | AST nodes | Booleans or node lists |
 | **Linker** | `backend/linker/Linker.js` | Connects files: imports, exports and calls | All per-file results | Resolved paths, ids and call edges |
 | **IndexMaps** | `backend/indexes/IndexMaps.js` | Stores the Linker's lookup tables | Exports and functions per file | Fast lookups |
+| **Graph** | `backend/graph/Graph.js` | Answers callers, callees and path questions | Call edges from `linkCalls` | Edges with a `depth`, or a chain of ids |
 
 ## Who uses whom
 
@@ -52,7 +57,8 @@ CodeFlow ──► Scanner
          ──► Parser
          ──► Analyzer ──► RuleSet
          │            └─► Utilities
-         └─► Linker ────► IndexMaps
+         ──► Linker ────► IndexMaps
+         └─► Graph  (created by buildGraph from the Linker's edges)
 ```
 
 - `CodeFlow` is the only piece that knows the whole pipeline. The others never
@@ -116,12 +122,12 @@ other files, so one broken file never stops the run.
 
 ## Not built yet
 
-- The `graph` step (callers/callees/path queries) and the HTTP API
-  (`docs/graph.md` and `docs/api.md` are empty).
+- The HTTP API (`docs/api.md` is empty).
 - The frontend described in `docs/initialSetup.md`.
 - Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`).
+- Linking classes: `new Scanner()` is not connected to the `Scanner` class, because only functions are indexed.
 
 ## Related docs
 
-[scanner.md](scanner.md) · [parser.md](parser.md) · [linker.md](linker.md) ·
+[scanner.md](scanner.md) · [parser.md](parser.md) · [linker.md](linker.md) · [graph.md](graph.md) ·
 [packages.md](packages.md) · [initialSetup.md](initialSetup.md)
