@@ -25,3 +25,24 @@ test("CodeFlow composes the class-based project pipeline", async () => {
 
   for (const [, passed] of rows) assert.equal(passed, true);
 });
+
+test("parse failures are reported while other files are still analyzed", async () => {
+  const result = await new CodeFlow().analyze(path.resolve("__test__/fixtures/broken"));
+
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.errors[0].file, "bad.js");
+  assert.match(result.errors[0].error, /line \d+/);
+  assert.deepEqual(result.fileResults.map((fileResult) => fileResult.file), ["ok.js"]);
+});
+
+test("two CodeFlow instances do not share indexes", async () => {
+  const first = new CodeFlow();
+  const second = new CodeFlow();
+  await first.analyze(fixtureRoot);
+  await second.analyze(path.resolve("__test__/fixtures/other"));
+
+  assert.equal(first.resolveExport("b.js", "init"), "b.js#init");
+  assert.equal(second.resolveExport("b.js", "init"), null);
+  assert.equal(second.resolveExport("b.js", "onlyHere"), "b.js#onlyHere");
+  assert.equal(first.resolveExport("b.js", "onlyHere"), null);
+});

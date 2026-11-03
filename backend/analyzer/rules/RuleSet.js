@@ -1,138 +1,296 @@
+/**
+ * Knows how to recognise things in a syntax tree (AST) node.
+ *
+ * The Analyzer gives this class one node at a time and asks four questions:
+ *   findFunctions(node)  - does this node define a function?
+ *   findCalls(node)      - is this node a call?
+ *   findImports(node)    - is this node an import?
+ *   findExports(node)    - is this node an export?
+ *
+ * Each answer is a list (empty when the node is not what we look for).
+ */
 class RuleSet {
+  /** Is this node an arrow function or a function expression? */
   isFunctionNode(node) {
     return node?.type === "ArrowFunctionExpression" || node?.type === "FunctionExpression";
   }
 
-  functionRule(type) {
-    const rules = {
-      FunctionDeclaration: (node) => [{
-        name: node.id?.name ?? "default", kind: "function", fnNode: node,
-      }],
-      VariableDeclarator: (node) => (
-        node.id.type === "Identifier" && this.isFunctionNode(node.init)
-          ? [{ name: node.id.name, kind: "function", fnNode: node.init }]
-          : []
-      ),
-      MethodDefinition: (node) => (
-        !node.computed && node.key.type === "Identifier"
-          ? [{ name: node.key.name, kind: "method", fnNode: node.value }]
-          : []
-      ),
-      Property: (node) => (
-        !node.computed && node.key.type === "Identifier" && this.isFunctionNode(node.value)
-          ? [{ name: node.key.name, kind: "method", fnNode: node.value }]
-          : []
-      ),
-      CallExpression: (node) => node.arguments
-        .filter((argument) => this.isFunctionNode(argument))
-        .map((fnNode) => ({ name: `anonymous@${fnNode.loc.start.line}`, kind: "callback", fnNode })),
-      NewExpression: (node) => node.arguments
-        .filter((argument) => this.isFunctionNode(argument))
-        .map((fnNode) => ({ name: `anonymous@${fnNode.loc.start.line}`, kind: "callback", fnNode })),
-    };
-    return rules[type];
+  // ---------------------------------------------------------------- functions
+
+  /**
+   * Function definitions found in this node.
+   * Each result is { name, kind, fnNode } where kind is:
+   *   "function" - function greet() {}   or   const greet = () => {}
+   *   "method"   - a class method, or a function inside an object
+   *   "callback" - an inline function passed as an argument: setTimeout(() => {})
+   */
+  findFunctions(node) {
+    switch (node.type) {
+      case "FunctionDeclaration":
+        // `export default function () {}` has no name, so call it "default".
+        return [{ name: node.id?.name ?? "default", kind: "function", fnNode: node }];
+
+      case "VariableDeclarator":
+        // const greet = () => {}
+        if (node.id.type === "Identifier" && this.isFunctionNode(node.init)) {
+          return [{ name: node.id.name, kind: "function", fnNode: node.init }];
+        }
+        return [];
+
+      case "MethodDefinition":
+        // class A { run() {} }   (names written as [x]() are skipped)
+        if (!node.computed && node.key.type === "Identifier") {
+          return [{ name: node.key.name, kind: "method", fnNode: node.value }];
+        }
+        return [];
+
+      case "Property":
+        // const o = { run() {} }   or   { run: () => {} }
+        if (!node.computed && node.key.type === "Identifier" && this.isFunctionNode(node.value)) {
+          return [{ name: node.key.name, kind: "method", fnNode: node.value }];
+        }
+        return [];
+
+      case "CallExpression":
+      case "NewExpression":
+        // setTimeout(() => {})   or   new Promise((resolve) => {})
+        return node.arguments
+          .filter((argument) => this.isFunctionNode(argument))
+          .map((fnNode) => ({
+            name: `anonymous@${fnNode.loc.start.line}`,
+            kind: "callback",
+            fnNode,
+          }));
+
+      default:
+        return [];
+    }
   }
 
-  calleeInfo(callee) {
+  // -------------------------------------------------------------------- calls
+
+  /**
+   * Calls found in this node. Each result is
+   * { calleeName, objectName, viaThis, kind } where kind is:
+   *   "call" - foo()
+   *   "new"  - new Foo()
+   *   "ref"  - a function passed by name: list.map(transform)
+   */
+  findCalls(node) {
+    if (node.type !== "CallExpression" && node.type !== "NewExpression") {
+      return [];
+    }
+
+    const calls = [];
+
+    // The call itself.
+    const callee = this.describeCallee(node.callee);
+    if (callee) {
+      calls.push({ ...callee, kind: node.type === "NewExpression" ? "new" : "call" });
+    }
+
+    // Functions passed by name as arguments. (Inline functions are already
+    // reported by findFunctions, so they are skipped here.)
+    for (const argument of node.arguments) {
+      if (this.isFunctionNode(argument)) continue;
+      const reference = this.describeCallee(argument);
+      if (reference) {
+        calls.push({ ...reference, kind: "ref" });
+      }
+    }
+
+    return calls;
+  }
+
+  /**
+   * Describe the thing being called:
+   *   foo()       -> { calleeName: "foo",  objectName: null,  viaThis: false }
+   *   obj.save()  -> { calleeName: "save", objectName: "obj", viaThis: false }
+   *   this.save() -> { calleeName: "save", objectName: null,  viaThis: true  }
+   * Returns null for shapes we cannot name, such as a[b]() or fn()().
+   */
+  describeCallee(callee) {
     if (callee.type === "Identifier") {
       return { calleeName: callee.name, objectName: null, viaThis: false };
     }
-    if (callee.type === "MemberExpression" && !callee.computed && callee.property.type === "Identifier") {
+
+    const isSimpleMember =
+      callee.type === "MemberExpression" &&
+      !callee.computed &&
+      callee.property.type === "Identifier";
+    if (isSimpleMember) {
       return {
         calleeName: callee.property.name,
         objectName: callee.object.type === "Identifier" ? callee.object.name : null,
         viaThis: callee.object.type === "ThisExpression",
       };
     }
+
     return null;
   }
 
-  callRule(type) {
-    if (type !== "CallExpression" && type !== "NewExpression") return undefined;
-    return (node) => {
-      const descriptions = [];
-      const info = this.calleeInfo(node.callee);
-      if (info) descriptions.push({ ...info, kind: type === "NewExpression" ? "new" : "call" });
-      for (const argument of node.arguments) {
-        if (this.isFunctionNode(argument)) continue;
-        const argumentInfo = this.calleeInfo(argument);
-        if (argumentInfo) descriptions.push({ ...argumentInfo, kind: "ref" });
-      }
-      return descriptions;
+  // ------------------------------------------------------------------ imports
+
+  /**
+   * Imports found in this node. Each result is
+   * { localName, importedName, source, external }:
+   *   localName    the name used in this file
+   *   importedName the name in the other file ("default" or "*" = whole module)
+   *   source       the path text, e.g. "./file.js"
+   *   external     true for packages such as "express"
+   */
+  findImports(node) {
+    if (node.type === "ImportDeclaration") {
+      // import a, { b as c }, * as d from "./file.js"
+      return node.specifiers.map((specifier) => {
+        let importedName;
+        if (specifier.type === "ImportDefaultSpecifier") {
+          importedName = "default";
+        } else if (specifier.type === "ImportNamespaceSpecifier") {
+          importedName = "*";
+        } else {
+          importedName = specifier.imported.name;
+        }
+        return this.makeImport(specifier.local.name, importedName, node.source.value);
+      });
+    }
+
+    // require() calls always sit inside a variable declaration.
+    if (node.type === "VariableDeclarator") {
+      return this.findRequires(node);
+    }
+
+    return [];
+  }
+
+  /** Build one import record (shared by import and require). */
+  makeImport(localName, importedName, source) {
+    return {
+      localName,
+      importedName,
+      source,
+      external: !String(source).trim().startsWith("."),
     };
   }
 
-  importRule(type) {
-    if (type === "ImportDeclaration") {
-      return (node) => node.specifiers.map((specifier) => ({
+  /** If `expression` is require("some/path"), return the path; otherwise null. */
+  requirePath(expression) {
+    const isRequire =
+      expression?.type === "CallExpression" &&
+      expression.callee.type === "Identifier" &&
+      expression.callee.name === "require" &&
+      expression.arguments[0]?.type === "Literal";
+    return isRequire ? expression.arguments[0].value : null;
+  }
+
+  /**
+   * CommonJS imports:
+   *   const a = require("./a")            whole module   (importedName "*")
+   *   const x = require("./a").x          one member
+   *   const { x, y: z } = require("./a")  several names
+   */
+  findRequires(declarator) {
+    const init = declarator.init;
+    if (!init) return [];
+
+    // Find the path, and the ".x" after it if there is one.
+    let source = this.requirePath(init);
+    let member = null;
+    if (source === null && init.type === "MemberExpression" && !init.computed) {
+      source = this.requirePath(init.object);
+      member = init.property.name;
+    }
+    if (source === null) return []; // not a require() at all
+
+    const target = declarator.id;
+
+    if (target.type === "Identifier") {
+      return [this.makeImport(target.name, member ?? "*", source)];
+    }
+
+    if (target.type === "ObjectPattern") {
+      // In { y: z } the key "y" is the name in the other file, "z" the local name.
+      return target.properties
+        .filter((property) =>
+          property.type === "Property" &&
+          !property.computed &&
+          property.key.type === "Identifier" &&
+          property.value.type === "Identifier")
+        .map((property) => this.makeImport(property.value.name, property.key.name, source));
+    }
+
+    return [];
+  }
+
+  // ------------------------------------------------------------------ exports
+
+  /**
+   * Exports found in this node. Each result is { exportedName, localName }:
+   * the name other files use, and the name used inside this file.
+   * Re-exports from another file (`export { x } from "./y"`) are not handled yet.
+   */
+  findExports(node) {
+    if (node.type === "ExportNamedDeclaration") {
+      return this.findNamedExports(node);
+    }
+    if (node.type === "ExportDefaultDeclaration") {
+      return this.findDefaultExport(node);
+    }
+    return [];
+  }
+
+  /**
+   *   export function a() {}   -> a / a
+   *   export const b = 1       -> b / b
+   *   export { helper as e }   -> e / helper
+   */
+  findNamedExports(node) {
+    if (node.source) return []; // re-export from another file
+
+    const declaration = node.declaration;
+
+    // export { a, b as c }
+    if (!declaration) {
+      return node.specifiers.map((specifier) => ({
+        exportedName: specifier.exported.name,
         localName: specifier.local.name,
-        importedName: specifier.type === "ImportDefaultSpecifier"
-          ? "default"
-          : specifier.type === "ImportNamespaceSpecifier" ? "*" : specifier.imported.name,
-        source: node.source.value,
-        external: !String(node.source.value).trim().startsWith("."),
       }));
     }
-    return type === "VariableDeclarator" ? this.requireRule.bind(this) : undefined;
-  }
 
-  requireRule(node) {
-    if (!node.id || !node.init) return [];
-    let source = null;
-    let member = null;
-    if (node.init.type === "CallExpression" && node.init.callee.type === "Identifier" &&
-      node.init.callee.name === "require" && node.init.arguments[0]?.type === "Literal") {
-      source = node.init.arguments[0].value;
-    } else if (node.init.type === "MemberExpression" && !node.init.computed &&
-      node.init.object?.callee?.name === "require" && node.init.object.arguments[0]?.type === "Literal") {
-      source = node.init.object.arguments[0].value;
-      member = node.init.property.name;
+    // export function a() {}   /   export class A {}
+    if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
+      return declaration.id
+        ? [{ exportedName: declaration.id.name, localName: declaration.id.name }]
+        : [];
     }
-    if (source === null) return [];
-    const make = (localName, importedName) => ({
-      localName, importedName, source, external: !String(source).trim().startsWith("."),
-    });
-    if (node.id.type === "Identifier") return [make(node.id.name, member ?? "*")];
-    if (node.id.type !== "ObjectPattern") return [];
-    return node.id.properties.flatMap((property) =>
-      property.type === "Property" && !property.computed &&
-      property.key.type === "Identifier" && property.value.type === "Identifier"
-        ? [make(property.value.name, property.key.name)] : []);
-  }
 
-  exportRule(type) {
-    if (type === "ExportNamedDeclaration") {
-      return (node) => {
-        if (node.source) return [];
-        if (node.declaration) {
-          const declaration = node.declaration;
-          if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
-            return declaration.id ? [{ exportedName: declaration.id.name, localName: declaration.id.name }] : [];
-          }
-          if (declaration.type === "VariableDeclaration") {
-            return declaration.declarations
-              .filter((declarator) => declarator.id.type === "Identifier")
-              .map((declarator) => ({ exportedName: declarator.id.name, localName: declarator.id.name }));
-          }
-          return [];
-        }
-        return node.specifiers.map((specifier) => ({
-          exportedName: specifier.exported.name,
-          localName: specifier.local.name,
+    // export const a = 1, b = 2
+    if (declaration.type === "VariableDeclaration") {
+      return declaration.declarations
+        .filter((declarator) => declarator.id.type === "Identifier")
+        .map((declarator) => ({
+          exportedName: declarator.id.name,
+          localName: declarator.id.name,
         }));
-      };
     }
-    if (type === "ExportDefaultDeclaration") {
-      return (node) => {
-        const declaration = node.declaration;
-        if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
-          return [{ exportedName: "default", localName: declaration.id?.name ?? "default" }];
-        }
-        return declaration.type === "Identifier"
-          ? [{ exportedName: "default", localName: declaration.name }] : [];
-      };
+
+    return [];
+  }
+
+  /**
+   *   export default function () {}  -> default / default
+   *   export default helper          -> default / helper
+   */
+  findDefaultExport(node) {
+    const declaration = node.declaration;
+
+    if (declaration.type === "FunctionDeclaration" || declaration.type === "ClassDeclaration") {
+      return [{ exportedName: "default", localName: declaration.id?.name ?? "default" }];
     }
-    return undefined;
+    if (declaration.type === "Identifier") {
+      return [{ exportedName: "default", localName: declaration.name }];
+    }
+    return [];
   }
 }
 

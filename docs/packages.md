@@ -9,18 +9,15 @@ explains the role of each package.
 
 - **Package:** `express`
 - **Version:** `^5.3.0`
-- **Purpose:** Provides the backend web framework. Express is used to define
-  HTTP routes, handle requests and responses, and expose the CodeFlow
-  functionality through an API.
+- **Purpose:** Web framework for the planned HTTP API. It is installed but not
+  used by any code yet (`docs/api.md` is still empty).
 
 ### Acorn
 
 - **Package:** `acorn`
 - **Version:** `^8.19.0`
 - **Purpose:** Parses JavaScript source code into an Abstract Syntax Tree
-  (AST). The AST gives the application a structured representation of source
-  files so it can identify functions and their relationships when building
-  the call graph.
+  (AST). It is used by the `Parser` class in `backend/parser/Parser.js`.
 
 ## Package management
 
