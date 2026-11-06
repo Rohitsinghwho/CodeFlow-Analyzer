@@ -41,7 +41,7 @@ Returns one edge per resolvable call:
 `confidence` is `"certain"` or `"guess"`; `file` is where the call is written.
 It rebuilds the indexes from `fileResults` first. Rules, first match wins:
 
-1. Plain `name()` matching a top-level function in the same file: certain.
+1. Plain `name()` atching a top-level function in the msame file: certain.
 2. Plain `name()` matching an import of a project file: resolved with
    `resolveModule` + `resolveExport`: certain.
 3. `this.name()` or `this.#name()` where the caller's class/object also has a

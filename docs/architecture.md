@@ -4,37 +4,10 @@ CodeFlow reads a JavaScript project and works out **which function calls which**
 The backend does this in four steps. Each step is one class, and `CodeFlow`
 runs them in order. A fifth class, `Graph`, then answers questions about the result.
 
+
 ## The big picture
 
-```
-                         CodeFlow  (backend/CodeFlow.js)
-                         runs the steps and returns the result
-                                      |
-   project folder                     v
-  ---------------> 1. Scanner  : "which files exist?"
-                          |  ["b.js", "c.js", "main.js"]
-                          v
-                    2. Parser   : "turn one file into a syntax tree (AST)"
-                          |  { ast }   or   { error }
-                          v
-                    3. Analyzer : "what is inside this one file?"
-                          |  uses RuleSet to recognise things, Utilities to walk the tree
-                          |  { functions, calls, imports, exports }   (one per file)
-                          v
-                    4. Linker   : "how do the files connect?"
-                             uses IndexMaps as its lookup tables
-                             resolveModule / resolveExport / linkCalls
-                                      |
-                                      v
-                          edges: main.js#main  --calls-->  c.js#init
-                                      |
-                                      v
-                    5. Graph    : "who calls X? what does X call? path from A to B?"
-                             built with CodeFlow.buildGraph(fileResults)
-```
-
-Steps 2 and 3 run once per file. Step 4 runs once, after every file has been
-analyzed, because it needs to see all files together.
+![alt text](image.png)
 
 ## What each piece does
 
