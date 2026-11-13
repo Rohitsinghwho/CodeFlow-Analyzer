@@ -209,6 +209,7 @@ h3 {
   min-width: 0;
 }
 .statusbar .ellipsis {
+  min-width: 0; /* lets the text shrink and show "..." instead of widening the page */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -228,6 +229,10 @@ h3 {
 .dot.green { background: var(--code-green-bright); }
 
 .window-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--base-content-dim);
 }
 .window-title b {
@@ -307,6 +312,10 @@ h3 {
 }
 .panel-title {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .panel-body {
   flex: 1;
@@ -322,6 +331,9 @@ h3 {
   display: flex;
   gap: 4px;
   margin-left: auto;
+}
+.to-list {
+  display: none; /* shown on small screens, see the responsive section */
 }
 .tab {
   background: transparent;
@@ -838,36 +850,121 @@ details.parse-errors li {
 
 /* ---------- 8. Responsive ---------- */
 
+/* Tablet and phone: one column. The side column (project, function list) comes
+   first, then the main panel. Opening a function scrolls down to the main panel. */
 @media (max-width: 1000px) {
   .window {
     height: auto;
     min-height: 100vh;
-    overflow: visible;
+    overflow-x: clip; /* nothing may ever make the page scroll sideways */
+    overflow-y: visible;
   }
   .workspace {
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr) lets the column shrink below its content, so long text or code never widens the page */
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sidebar,
+  .main {
+    min-width: 0;
   }
   .sidebar .panel.grow {
     max-height: 480px;
   }
   .main {
-    min-height: 520px;
+    min-height: 560px;
+    scroll-margin-top: 8px; /* room above the panel when we scroll to it */
   }
   .columns {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Bigger touch targets. */
+  .tab {
+    padding: 7px 12px;
+  }
+  .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+  .btn {
+    min-height: 40px;
+  }
+  .btn.small {
+    min-height: 32px;
+  }
+  .list-item {
+    padding: 11px 12px;
+  }
+
+  /* The title bar of the main panel: the function name on the first line, the tabs
+     below it, spread over the full width. */
+  .main .panel-titlebar {
+    flex-wrap: wrap;
+  }
+  .main .panel-title {
+    flex: 1 1 0; /* takes what is left on the first row, next to the dots and the list button */
+  }
+  .main .tabs {
+    order: 3;
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+  .main .tab {
+    flex: 1;
+    text-align: center;
+  }
+  .to-list {
+    display: inline-flex;
+    margin-left: auto;
+  }
+
+  .zoom-hint {
+    display: none; /* "scroll to zoom" makes no sense on a touch screen */
   }
 }
 
 @media (max-width: 640px) {
+  .window-title .sub {
+    display: none; /* keep just "codeflow" in the title bar */
+  }
+  .workspace {
+    padding: 10px;
+    gap: 10px;
+  }
+  .sidebar {
+    gap: 10px;
+  }
+  .panel-body {
+    padding: 12px;
+  }
   .floating-symbol {
     display: none;
   }
   .statusbar {
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: 2px;
+  }
+  .statusbar > span {
+    max-width: 100%;
   }
   .picker-row {
     flex-direction: column;
+  }
+  .stat b {
+    font-size: 1.1rem;
+  }
+  .graph-controls {
+    gap: 8px 14px;
+  }
+  .graph-canvas {
+    min-height: 380px;
+  }
+  .welcome {
+    padding: 2rem 1rem;
+  }
+  /* 16px stops iPhones from zooming the page when you tap into a text box. */
+  .input {
+    font-size: 16px;
   }
 }

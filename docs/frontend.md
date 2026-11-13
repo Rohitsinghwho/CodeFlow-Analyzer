@@ -86,7 +86,7 @@ frontend/
 - **Data:** components call the functions in `api.js`; they never use `fetch` directly. A request that is replaced by a newer one is ignored, so a slow answer can never overwrite a fresh one.
 - **Graph:** [Cytoscape.js](https://js.cytoscape.org) with the dagre layout (left to right). It is loaded only when you open the graph tab, which keeps the first download small. The graph reads its colors from the CSS variables, so it follows the theme.
 - **Theme:** all colors are CSS variables in `index.css`. `:root[data-theme="light"]` overrides the dark values. `useTheme` sets `data-theme` on `<html>`.
-- **Layout:** one window with a side column (project, function list) and a main panel. Below 1000px wide the columns stack.
+- **Layout:** one window with a side column (project, function list) and a main panel. Below 1000px wide (tablets and phones) everything becomes one column: the side column first, then the main panel. Choosing a function scrolls down to the main panel, and the **↑ list** button in its title bar scrolls back up. The tabs get their own full-width row, the page can never scroll sideways, inputs use 16px text so iPhones do not zoom in when you tap them, and buttons are bigger for fingers. The graph can be zoomed with the **+ / −** buttons or by pinching.
 
 ## Not built yet
 

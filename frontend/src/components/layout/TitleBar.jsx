@@ -10,7 +10,7 @@ export default function TitleBar({ theme, onToggleTheme }) {
         <span className="dot green" />
       </span>
       <span className="window-title">
-        <b>codeflow</b> &lt;call graph explorer&gt;
+        <b>codeflow</b> <span className="sub">&lt;call graph explorer&gt;</span>
       </span>
       <ThemeToggle theme={theme} onToggle={onToggleTheme} />
     </header>

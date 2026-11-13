@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import AnalyzeForm from "./components/AnalyzeForm.jsx";
 import DetailPanel from "./components/DetailPanel.jsx";
@@ -43,6 +43,21 @@ export default function App() {
       });
   }, []);
 
+  // On a phone or tablet the layout is one long column: the function list, then the main
+  // panel. So choosing a function scrolls down to the main panel, and a button there
+  // scrolls back up to the list.
+  const sidebarRef = useRef(null);
+  const mainRef = useRef(null);
+  const isNarrow = () => window.matchMedia("(max-width: 1000px)").matches;
+
+  const selectFunction = (id) => {
+    setSelectedId(id);
+    if (isNarrow()) {
+      mainRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+  const scrollToList = () => sidebarRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
   const handleAnalyzed = (result) => {
     setProject(result);
     setSelectedId(null);
@@ -51,32 +66,37 @@ export default function App() {
 
   // The tab buttons live in the title bar of the right panel.
   const tabs = (
-    <div className="tabs" role="tablist" aria-label="views">
-      {TABS.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          role="tab"
-          className="tab"
-          aria-selected={tab === item.id}
-          onClick={() => setTab(item.id)}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
+    <>
+      <button type="button" className="btn ghost small to-list" onClick={scrollToList}>
+        ↑ list
+      </button>
+      <div className="tabs" role="tablist" aria-label="views">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            className="tab"
+            aria-selected={tab === item.id}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </>
   );
 
   // Details and graph need a function. The path view works without one.
   let content;
   if (tab === "path") {
-    content = <PathView selectedId={selectedId} onSelect={setSelectedId} projectKey={projectKey} />;
+    content = <PathView selectedId={selectedId} onSelect={selectFunction} projectKey={projectKey} />;
   } else if (!selectedId) {
     content = <p className="empty">pick a function from the list to see its {tab}</p>;
   } else if (tab === "graph") {
     content = null; // drawn below, because the graph fills the whole panel
   } else {
-    content = <DetailPanel id={selectedId} onSelect={setSelectedId} />;
+    content = <DetailPanel id={selectedId} onSelect={selectFunction} />;
   }
 
   const showGraph = tab === "graph" && selectedId;
@@ -91,17 +111,17 @@ export default function App() {
       <TitleBar theme={theme} onToggleTheme={toggleTheme} />
 
       <div className="workspace">
-        <aside className="sidebar">
+        <aside className="sidebar" ref={sidebarRef}>
           <AnalyzeForm project={project} config={config} onAnalyzed={handleAnalyzed} />
-          {project && <FunctionList projectKey={projectKey} selectedId={selectedId} onSelect={setSelectedId} />}
+          {project && <FunctionList projectKey={projectKey} selectedId={selectedId} onSelect={selectFunction} />}
         </aside>
 
-        <main className="main">
+        <main className="main" ref={mainRef}>
           {project ? (
             <Panel title={selectedId ?? "no function selected"} actions={tabs} grow flush={showGraph}>
               {showGraph ? (
                 <Suspense fallback={<div className="empty"><span className="spinner" aria-label="loading" /></div>}>
-                  <GraphView id={selectedId} onSelect={setSelectedId} theme={theme} />
+                  <GraphView id={selectedId} onSelect={selectFunction} theme={theme} />
                 </Suspense>
               ) : (
                 content
