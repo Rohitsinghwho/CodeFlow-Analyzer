@@ -36,6 +36,9 @@ Copy `frontend/.env.example` to `frontend/.env` to change a setting.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `VITE_API_URL` | `http://localhost:3000` | Address of the backend |
+| `VITE_BASE` | `/` | Sub-path the site is served from. The GitHub Pages workflow sets it to `/<repository>/` |
+
+The settings are read when the site is **built**, so after changing one you must build (or deploy) again. How to publish the site is in [deployment.md](deployment.md).
 
 The dev server is locked to port 5173 (`strictPort`), because that is the only
 address the backend allows by default (`CORS_ORIGIN`). If you must use another
@@ -50,6 +53,10 @@ port, start the backend with `CORS_ORIGIN=http://localhost:<port>`.
 5. **path:** pick two functions (with suggestions while you type) and see the shortest chain of calls between them, or a clear message when there is none.
 6. **Switch dark and light mode** with the button in the title bar. The choice is remembered, and the first visit follows your system setting.
 
+On a **public server** the API only accepts GitHub links. The page asks the server what it allows (`GET /api/config`) and then shows "github link" instead of "folder path". If the server was asleep (free hosting), a message appears after a few seconds saying it may take up to a minute to wake up.
+
+The page remembers the project id the server gives it (`X-Project-Id`, in memory only), so every browser tab has its own project.
+
 A *guess* is a call matched only by name, for example `obj.save()` on an object
 whose type is unknown. It is drawn dashed in the graph and tagged `guess` in lists.
 
@@ -61,7 +68,7 @@ frontend/
   src/
     main.jsx           starts React
     App.jsx            holds the shared state: project, selected function, open tab
-    api.js             the only file that calls the backend (decides folder vs GitHub link)
+    api.js             the only file that calls the backend (decides folder vs GitHub link, keeps the project id)
     functionId.js      splits ids like "a/b.js#Class.method" into file and name
     highlight.js       tiny syntax highlighter for the source view
     index.css          every color (dark and light), font and layout rule

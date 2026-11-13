@@ -4,7 +4,12 @@
 folder. It is the first step of the pipeline:
 `Scanner -> Parser -> Analyzer -> Linker`.
 
-## `new Scanner().scan(directory, rootPath = directory)`
+## `new Scanner({ maxFileBytes })`
+
+`maxFileBytes` (default 1 MB) is the biggest file that is listed. Larger files are
+almost always bundled or minified code, which is slow to parse and not useful to read, so they are skipped.
+
+## `scan(directory, rootPath = directory)`
 
 Walks `directory` and all sub-folders, depth first, and returns the source files.
 

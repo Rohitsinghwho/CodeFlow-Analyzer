@@ -31,22 +31,27 @@ class RepoError extends Error {
 class RepoCloner {
   #baseFolder;
   #timeoutMs;
+  #maxBytes;
   #cloneUrlFor;
 
   /**
    * @param {object} [options]
    * @param {string} [options.baseFolder] Where downloads are stored.
    * @param {number} [options.timeoutMs] Give up on a download after this long.
+   * @param {number} [options.maxBytes] Refuse repositories that take more disk space
+   *   than this after downloading (default 200 MB).
    * @param {(repo: {owner: string, name: string}) => string} [options.cloneUrlFor]
    *   Address that git clones from. Tests change it to point at a local repository.
    */
   constructor({
     baseFolder = path.join(os.tmpdir(), "codeflow-repos"),
     timeoutMs = 60_000,
+    maxBytes = 200 * 1024 * 1024,
     cloneUrlFor = (repo) => `https://github.com/${repo.owner}/${repo.name}.git`,
   } = {}) {
     this.#baseFolder = path.resolve(baseFolder);
     this.#timeoutMs = timeoutMs;
+    this.#maxBytes = maxBytes;
     this.#cloneUrlFor = cloneUrlFor;
   }
 
@@ -131,6 +136,16 @@ class RepoCloner {
       throw this.#explain(error);
     }
 
+    // The download is over, but a huge repository would still fill the disk and the
+    // memory when analyzed, so refuse it and delete it again.
+    if ((await this.#sizeOf(parent)) > this.#maxBytes) {
+      await this.remove(folder);
+      throw new RepoError(
+        `repository is too large. the limit is ${Math.round(this.#maxBytes / (1024 * 1024))} MB`,
+        413,
+      );
+    }
+
     return { folder, display: repo.display };
   }
 
@@ -144,6 +159,25 @@ class RepoCloner {
       return;
     }
     await fs.rm(parent, { recursive: true, force: true, maxRetries: 3 });
+  }
+
+  /** Delete every download (used when the server starts or stops). */
+  async removeAll() {
+    await fs.rm(this.#baseFolder, { recursive: true, force: true, maxRetries: 3 });
+  }
+
+  // Total size in bytes of all files below `folder`. Links are not followed.
+  async #sizeOf(folder) {
+    let total = 0;
+    for (const entry of await fs.readdir(folder, { withFileTypes: true })) {
+      const fullPath = path.join(folder, entry.name);
+      if (entry.isDirectory()) {
+        total += await this.#sizeOf(fullPath);
+      } else if (entry.isFile()) {
+        total += (await fs.stat(fullPath)).size;
+      }
+    }
+    return total;
   }
 
   // Turn a git failure into a message a person can understand.

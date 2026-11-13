@@ -1,7 +1,8 @@
 import FloatingSymbol from "./ui/FloatingSymbol.jsx";
 
 // What you see before a project is analyzed: a short hello and the first steps.
-export default function Welcome() {
+// `githubOnly` is true on a public server, which does not read its own folders.
+export default function Welcome({ githubOnly = false }) {
   return (
     <div className="welcome">
       <FloatingSymbol symbol="{ }" style={{ top: "12%", left: "10%" }} duration={7} />
@@ -23,7 +24,7 @@ export default function Welcome() {
         </p>
         <div className="steps">
           <span>
-            <b>1.</b> enter a project folder and press analyze
+            <b>1.</b> {githubOnly ? "paste a public github link" : "enter a project folder or a github link"} and press analyze
           </span>
           <span>
             <b>2.</b> pick a function from the list

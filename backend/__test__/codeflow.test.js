@@ -5,6 +5,7 @@
 //   4. CodeFlow on its own code - checks the real "who calls whom" of this repo
 //   5. HTTP API                 - the Express endpoints, called over a real local port
 //   6. GitHub links             - parsing links, downloading a repository (offline), the API option
+//   7. Public server            - one project per visitor, features switched off, limits
 // Run with `npm test` from the backend/ folder.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -493,22 +494,29 @@ test("`new Scanner()` in CodeFlow is linked to the Scanner class", {
 // Start the app on any free port (port 0 = let the system choose).
 // (allowedRoots: [] means "no folder limit", so the tests do not depend on a local .env file.)
 const apiServer = await new Promise((resolve) => {
-  const started = createApp({ allowedRoots: [] }).listen(0, () => resolve(started));
+  const started = createApp({ allowedRoots: [], rateLimit: false }).listen(0, () => resolve(started));
 });
 const apiBase = `http://127.0.0.1:${apiServer.address().port}`;
 
 // Stop the server when the tests finish, or the test run would never end.
 after(() => apiServer.close());
 
+// The shared app gives every analysis a project id, and wants it back on later calls
+// (in the X-Project-Id header). This helper remembers the newest id, like the frontend does.
+let apiProjectId = null;
+
 // Call the API and return { status, body } (body is the parsed JSON).
 async function callApi(urlPath, jsonBody) {
-  const options = jsonBody === undefined ? {} : {
+  const headers = apiProjectId ? { "X-Project-Id": apiProjectId } : {};
+  const options = jsonBody === undefined ? { headers } : {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...headers, "Content-Type": "application/json" },
     body: JSON.stringify(jsonBody),
   };
   const response = await fetch(`${apiBase}${urlPath}`, options);
-  return { status: response.status, body: await response.json() };
+  const body = await response.json();
+  if (body.projectId) apiProjectId = body.projectId;
+  return { status: response.status, body };
 }
 
 // Function ids contain "#", which must be written as %23 inside a URL.
@@ -695,7 +703,7 @@ test("api: callees, callers and path answer 409 before a project is analyzed", a
 // Start a separate app with its own settings. Returns { base, close }.
 async function startApi(options) {
   const server = await new Promise((resolve) => {
-    const started = createApp(options).listen(0, () => resolve(started));
+    const started = createApp({ rateLimit: false, ...options }).listen(0, () => resolve(started));
   });
   return { base: `http://127.0.0.1:${server.address().port}`, close: () => server.close() };
 }
@@ -941,10 +949,11 @@ function fakeCloner({ failWith } = {}) {
   };
 }
 
-async function postAnalyze(base, body) {
+// `projectId` is the id of the visitor's current project, if they have one.
+async function postAnalyze(base, body, projectId) {
   const response = await fetch(`${base}/api/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(projectId ? { "X-Project-Id": projectId } : {}) },
     body: JSON.stringify(body),
   });
   return { status: response.status, body: await response.json() };
@@ -956,10 +965,14 @@ test("api: a github link is downloaded and analyzed like a folder", async () => 
   try {
     const analyzed = await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
     assert.equal(analyzed.status, 200);
-    assert.deepEqual(analyzed.body, { files: 3, functions: 6, errors: [], repo: "octo/demo" });
+    const { projectId, ...counts } = analyzed.body;
+    assert.deepEqual(counts, { files: 3, functions: 6, errors: [], repo: "octo/demo" });
+    assert.equal(typeof projectId, "string");
 
     // The other endpoints now work on the downloaded project.
-    const list = await (await fetch(`${api.base}/api/functions?search=main`)).json();
+    const list = await (await fetch(`${api.base}/api/functions?search=main`, {
+      headers: { "X-Project-Id": projectId },
+    })).json();
     assert.deepEqual(list.items.map((fn) => fn.id), ["main.js#main"]);
   } finally {
     api.close();
@@ -971,14 +984,15 @@ test("api: a downloaded project is deleted when another project replaces it", as
   const api = await startApi({ allowedRoots: [], cloner });
 
   try {
-    await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+    const first = await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
     assert.deepEqual(cloner.removed, []); // still in use
 
-    await postAnalyze(api.base, { path: fixture("calls") });
-    assert.deepEqual(cloner.removed, [fixtureRoot]); // the old download was cleaned up
+    // The same visitor analyzes something else: their old download is cleaned up.
+    const second = await postAnalyze(api.base, { path: fixture("calls") }, first.body.projectId);
+    assert.deepEqual(cloner.removed, [fixtureRoot]);
 
     // A normal folder is never "removed".
-    await postAnalyze(api.base, { path: fixture("project") });
+    await postAnalyze(api.base, { path: fixture("project") }, second.body.projectId);
     assert.deepEqual(cloner.removed, [fixtureRoot]);
   } finally {
     api.close();
@@ -1032,4 +1046,264 @@ test("api: github downloads can be turned off", async () => {
   } finally {
     api.close();
   }
+});
+
+// ---------------------------------------------------------------------------
+// 7. Running on a public server
+//
+// One project per visitor, switching features off, and limits that protect the
+// server (memory, disk, time).
+// ---------------------------------------------------------------------------
+
+// Ask for a function list with a given project id (or none).
+const listFor = (base, projectId, query = "") =>
+  fetch(`${base}/api/functions${query}`, { headers: projectId ? { "X-Project-Id": projectId } : {} });
+
+test("deploy: health check answers ok and the server does not announce Express", async () => {
+  const response = await fetch(`${apiBase}/api/health`);
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true });
+  assert.equal(response.headers.get("x-powered-by"), null);
+});
+
+test("deploy: the browser may send the project id header", async () => {
+  const api = await startApi({ allowedRoots: [], corsOrigins: ["http://localhost:5173"] });
+
+  try {
+    const preflight = await fetch(`${api.base}/api/functions`, {
+      method: "OPTIONS",
+      headers: { Origin: "http://localhost:5173", "Access-Control-Request-Method": "GET" },
+    });
+    assert.match(preflight.headers.get("access-control-allow-headers"), /X-Project-Id/);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: config tells the web interface what the server allows", async () => {
+  const defaults = await startApi({});
+  const locked = await startApi({ allowLocalPaths: false, allowGithub: true });
+  const noGithub = await startApi({ allowGithub: false });
+
+  try {
+    assert.deepEqual(await (await fetch(`${defaults.base}/api/config`)).json(), { allowLocalPaths: true, allowGithub: true });
+    assert.deepEqual(await (await fetch(`${locked.base}/api/config`)).json(), { allowLocalPaths: false, allowGithub: true });
+    assert.deepEqual(await (await fetch(`${noGithub.base}/api/config`)).json(), { allowLocalPaths: true, allowGithub: false });
+  } finally {
+    defaults.close();
+    locked.close();
+    noGithub.close();
+  }
+});
+
+test("deploy: server folders can be switched off while GitHub links still work", async () => {
+  const api = await startApi({ allowLocalPaths: false, cloner: fakeCloner() });
+
+  try {
+    const folder = await postAnalyze(api.base, { path: fixtureRoot });
+    assert.equal(folder.status, 403);
+    assert.match(folder.body.error, /GitHub link/);
+
+    const repo = await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+    assert.equal(repo.status, 200);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: every visitor has their own project", async () => {
+  const api = await startApi({ allowedRoots: [] });
+
+  try {
+    const visitorA = await postAnalyze(api.base, { path: fixture("project") });
+    const visitorB = await postAnalyze(api.base, { path: fixture("calls") });
+    assert.notEqual(visitorA.body.projectId, visitorB.body.projectId);
+
+    // Each visitor sees only their own functions.
+    const listA = await (await listFor(api.base, visitorA.body.projectId)).json();
+    const listB = await (await listFor(api.base, visitorB.body.projectId)).json();
+    assert.equal(listA.total, 6);
+    assert.deepEqual(listB.items.map((fn) => fn.id).sort(), ["box.js#Box.close", "box.js#Box.open", "box.js#use"]);
+
+    // Visitor B analyzing again does not touch visitor A's project.
+    await postAnalyze(api.base, { path: fixture("other") }, visitorB.body.projectId);
+    assert.equal((await (await listFor(api.base, visitorA.body.projectId)).json()).total, 6);
+
+    // ...but B's old project is gone, replaced by the new one.
+    assert.equal((await listFor(api.base, visitorB.body.projectId)).status, 409);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: a missing or unknown project id answers 409", async () => {
+  const api = await startApi({ allowedRoots: [] });
+
+  try {
+    await postAnalyze(api.base, { path: fixtureRoot });
+
+    const none = await listFor(api.base, null);
+    assert.equal(none.status, 409);
+    assert.equal((await none.json()).error, "Analyze a project first");
+
+    const wrong = await listFor(api.base, "not-a-real-id");
+    assert.equal(wrong.status, 409);
+    assert.match((await wrong.json()).error, /not found or expired/);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: a project that is not used is forgotten after a while", async () => {
+  const api = await startApi({ allowedRoots: [], projectTtlMs: 60 });
+
+  try {
+    const { body } = await postAnalyze(api.base, { path: fixtureRoot });
+    assert.equal((await listFor(api.base, body.projectId)).status, 200);
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal((await listFor(api.base, body.projectId)).status, 409);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: when the server is full, the project used longest ago is dropped and cleaned up", async () => {
+  const cloner = fakeCloner();
+  const api = await startApi({ allowedRoots: [], maxProjects: 2, cloner });
+
+  try {
+    const first = await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+    const second = await postAnalyze(api.base, { path: fixture("calls") });
+
+    // Using the first project makes the second one the oldest.
+    assert.equal((await listFor(api.base, first.body.projectId)).status, 200);
+    const third = await postAnalyze(api.base, { path: fixture("other") });
+
+    assert.equal((await listFor(api.base, second.body.projectId)).status, 409); // dropped
+    assert.equal((await listFor(api.base, first.body.projectId)).status, 200);
+    assert.equal((await listFor(api.base, third.body.projectId)).status, 200);
+
+    // Now the download is the oldest, so it is the next to go, and its folder is deleted.
+    await postAnalyze(api.base, { path: fixture("calls") });
+    assert.equal((await listFor(api.base, first.body.projectId)).status, 409);
+    assert.deepEqual(cloner.removed, [fixtureRoot]);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: projects with too many files are refused with 413", async () => {
+  const api = await startApi({ allowedRoots: [], maxFiles: 2 });
+
+  try {
+    const tooMany = await postAnalyze(api.base, { path: fixture("project") }); // 3 files
+    assert.equal(tooMany.status, 413);
+    assert.match(tooMany.body.error, /too many files \(3\)/);
+
+    const fine = await postAnalyze(api.base, { path: fixture("broken") }); // 2 files
+    assert.equal(fine.status, 200);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: one visitor cannot analyze too often", async () => {
+  const api = await startApi({ allowedRoots: [], rateLimit: { max: 2, windowMs: 60_000 } });
+
+  try {
+    assert.equal((await postAnalyze(api.base, { path: fixtureRoot })).status, 200);
+    assert.equal((await postAnalyze(api.base, { path: fixtureRoot })).status, 200);
+
+    const response = await fetch(`${api.base}/api/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: fixtureRoot }),
+    });
+    assert.equal(response.status, 429);
+    assert.ok(Number(response.headers.get("retry-after")) > 0);
+    assert.match((await response.json()).error, /too many analyses/);
+
+    // Reading results is not limited.
+    assert.equal((await fetch(`${api.base}/api/health`)).status, 200);
+  } finally {
+    api.close();
+  }
+});
+
+test("deploy: only a few downloads run at the same time", async () => {
+  // A downloader that waits until we say it may finish.
+  let finishDownload;
+  const gate = new Promise((resolve) => {
+    finishDownload = resolve;
+  });
+  const slow = { ...fakeCloner(), clone: async () => {
+    await gate;
+    return { folder: fixtureRoot, display: "octo/demo" };
+  } };
+  const api = await startApi({ allowedRoots: [], maxDownloads: 1, cloner: slow });
+
+  try {
+    const firstDownload = postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+    await new Promise((resolve) => setTimeout(resolve, 50)); // let it start
+
+    const busy = await postAnalyze(api.base, { repo: "https://github.com/octo/other" });
+    assert.equal(busy.status, 429);
+    assert.match(busy.body.error, /busy downloading/);
+
+    // Folders are not downloads, so they are not blocked.
+    assert.equal((await postAnalyze(api.base, { path: fixtureRoot })).status, 200);
+
+    finishDownload();
+    assert.equal((await firstDownload).status, 200);
+
+    // The place is free again.
+    assert.equal((await postAnalyze(api.base, { repo: "https://github.com/octo/demo" })).status, 200);
+  } finally {
+    finishDownload();
+    api.close();
+  }
+});
+
+test("deploy: a repository that is too large is refused and deleted", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codeflow-test-"));
+
+  try {
+    const source = await makeLocalRepo(root);
+    const downloads = path.join(root, "downloads");
+    const cloner = new RepoCloner({
+      baseFolder: downloads,
+      maxBytes: 1, // smaller than any repository
+      cloneUrlFor: () => pathToFileURL(source).href,
+    });
+
+    await assert.rejects(
+      cloner.clone("https://github.com/octo/demo"),
+      (error) => error instanceof RepoError && error.status === 413 && /too large/.test(error.message),
+    );
+    assert.deepEqual(await fs.readdir(downloads), []); // nothing left behind
+
+    // removeAll() clears every download at once.
+    const fine = new RepoCloner({ baseFolder: downloads, cloneUrlFor: () => pathToFileURL(source).href });
+    await fine.clone("https://github.com/octo/demo");
+    assert.equal((await fs.readdir(downloads)).length, 1);
+    await fine.removeAll();
+    await assert.rejects(fs.stat(downloads));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
+test("deploy: very big source files are skipped by the scanner", async () => {
+  // b.js is longer than 20 bytes, c.js and main.js are not all shorter, so check by size.
+  const everything = await new Scanner().scan(fixtureRoot, fixtureRoot);
+  const sizes = await Promise.all(everything.map(async (file) => [file, (await fs.stat(path.join(fixtureRoot, file))).size]));
+  const limit = Math.min(...sizes.map(([, size]) => size)) + 1;
+
+  const small = await new Scanner({ maxFileBytes: limit }).scan(fixtureRoot, fixtureRoot);
+  const expected = sizes.filter(([, size]) => size <= limit).map(([file]) => file).sort();
+
+  assert.deepEqual(small, expected);
+  assert.ok(small.length > 0 && small.length < everything.length, "some files, but not all, should be skipped");
 });

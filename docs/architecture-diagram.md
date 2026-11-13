@@ -19,13 +19,15 @@ flowchart LR
   end
 
   api["API<br/>Express routes"]
+  store["ProjectStore<br/>one project per visitor"]
   github(["GitHub<br/>public repositories"])
   cloner["RepoCloner<br/>git clone to a temp folder"]
   rules["RuleSet<br/>recognises things in a tree node"]
   utils["Utilities<br/>tree helpers"]
   indexes["IndexMaps<br/>lookup tables"]
 
-  client -->|"requests"| api
+  client -->|"requests + project id"| api
+  api --> store
   api -->|"analyze, buildGraph"| codeflow
   api -->|"repo link"| cloner
   cloner -->|"downloads from"| github
@@ -58,6 +60,7 @@ flowchart LR
 | IndexMaps | Lookup tables the Linker fills: exports and top-level functions per file | `backend/indexes/` |
 | Graph | Answers who calls whom, and finds the shortest call path | `backend/graph/` |
 | RepoCloner | Downloads a public GitHub repository with `git clone --depth 1` into a temp folder, and deletes it when replaced | `backend/api/RepoCloner.js` |
+| ProjectStore | Keeps one analyzed project per visitor in memory, with a time limit and a size limit | `backend/api/ProjectStore.js` |
 | API | Express app that remembers the last analyzed project and serves it as JSON | `backend/api/`, `backend/server.js` |
 
 ## Notes

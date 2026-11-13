@@ -1,0 +1,29 @@
+# Render "blueprint": describes the backend service so it can be created in one click
+# (Render dashboard -> New -> Blueprint, then pick this repository).
+# See docs/deployment.md for the full step by step guide.
+services:
+  - type: web
+    name: codeflow-api
+    runtime: docker
+    # The backend lives in the backend/ folder of this repository.
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # The web interface address (GitHub Pages). Only this address may call the API from a browser.
+      - key: CORS_ORIGIN
+        value: https://rohitsinghwho.github.io
+      # A public server must not read its own folders.
+      - key: ALLOW_LOCAL_PATHS
+        value: "false"
+      # Limits that protect a small free server. Raise them on a bigger plan.
+      - key: MAX_REPO_MB
+        value: "100"
+      - key: MAX_FILES
+        value: "2000"
+      - key: MAX_DOWNLOADS
+        value: "1"
+      - key: MAX_PROJECTS
+        value: "10"

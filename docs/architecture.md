@@ -22,6 +22,8 @@ runs them in order. A fifth class, `Graph`, then answers questions about the res
 | **Linker** | `backend/linker/Linker.js` | Connects files: imports, exports and calls | All per-file results | Resolved paths, ids and call edges |
 | **IndexMaps** | `backend/indexes/IndexMaps.js` | Stores the Linker's lookup tables | Exports and functions per file | Fast lookups |
 | **RepoCloner** | `backend/api/RepoCloner.js` | Downloads a public GitHub repository (`git clone --depth 1`) into a temp folder for the API | A GitHub link | A folder to analyze |
+| **ProjectStore** | `backend/api/ProjectStore.js` | Keeps one analyzed project per visitor in memory, forgets idle ones | A project | A random project id |
+| **RateLimiter** | `backend/api/RateLimiter.js` | Limits how often one visitor may analyze | An IP address | Allowed, or wait N seconds |
 | **API** | `backend/api/createApp.js` | Exposes analyze, list functions, get a function, callers, callees and paths over HTTP (see [api.md](api.md)) | HTTP requests | JSON |
 | **Graph** | `backend/graph/Graph.js` | Answers callers, callees and path questions | Call edges from `linkCalls` | Edges with a `depth`, or a chain of ids |
 
@@ -103,5 +105,5 @@ other files, so one broken file never stops the run.
 
 ## Related docs
 
-[scanner.md](scanner.md) · [parser.md](parser.md) · [linker.md](linker.md) · [graph.md](graph.md) · [api.md](api.md) · [frontend.md](frontend.md) ·
+[scanner.md](scanner.md) · [parser.md](parser.md) · [linker.md](linker.md) · [graph.md](graph.md) · [api.md](api.md) · [frontend.md](frontend.md) · [deployment.md](deployment.md) ·
 [packages.md](packages.md) · [initialSetup.md](initialSetup.md)

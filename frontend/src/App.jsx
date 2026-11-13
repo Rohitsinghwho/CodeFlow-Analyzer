@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import AnalyzeForm from "./components/AnalyzeForm.jsx";
 import DetailPanel from "./components/DetailPanel.jsx";
@@ -8,6 +8,7 @@ import Welcome from "./components/Welcome.jsx";
 import StatusBar from "./components/layout/StatusBar.jsx";
 import TitleBar from "./components/layout/TitleBar.jsx";
 import Panel from "./components/ui/Panel.jsx";
+import { getConfig } from "./api.js";
 import { useTheme } from "./hooks/useTheme.js";
 
 // The graph library is big, so it is only downloaded the first time you open the graph tab.
@@ -25,11 +26,22 @@ const TABS = [
 //   tab        - which view is open on the right
 export default function App() {
   const { theme, toggleTheme } = useTheme();
+  // What the server allows. Until it answers, assume everything, and let the server say no.
+  const [config, setConfig] = useState({ allowLocalPaths: true, allowGithub: true });
   const [project, setProject] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [tab, setTab] = useState("details");
   // Changes on every analysis, so lists reload even if the folder is the same.
   const [projectKey, setProjectKey] = useState(0);
+
+  // Ask the server once what it allows (a public server turns folders off).
+  useEffect(() => {
+    getConfig()
+      .then(setConfig)
+      .catch(() => {
+        // If the server cannot be reached now, the analyze button shows the error later.
+      });
+  }, []);
 
   const handleAnalyzed = (result) => {
     setProject(result);
@@ -80,7 +92,7 @@ export default function App() {
 
       <div className="workspace">
         <aside className="sidebar">
-          <AnalyzeForm project={project} onAnalyzed={handleAnalyzed} />
+          <AnalyzeForm project={project} config={config} onAnalyzed={handleAnalyzed} />
           {project && <FunctionList projectKey={projectKey} selectedId={selectedId} onSelect={setSelectedId} />}
         </aside>
 
@@ -97,7 +109,7 @@ export default function App() {
             </Panel>
           ) : (
             <Panel title="welcome" grow flush>
-              <Welcome />
+              <Welcome githubOnly={!config.allowLocalPaths} />
             </Panel>
           )}
         </main>

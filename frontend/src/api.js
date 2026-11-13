@@ -3,11 +3,17 @@
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
+// The server gives every analysis a project id and keeps one project per visitor.
+// We send the id back with every request (the X-Project-Id header) so the server
+// knows whose project to use. It lives in memory, so each browser tab has its own.
+let projectId = null;
+
 // Send a request and return its JSON. Turns every failure into an Error.
-async function request(path, options) {
+async function request(path, options = {}) {
   let response;
   try {
-    response = await fetch(`${BASE}${path}`, options);
+    const headers = { ...options.headers, ...(projectId ? { "X-Project-Id": projectId } : {}) };
+    response = await fetch(`${BASE}${path}`, { ...options, headers });
   } catch {
     throw new Error(`cannot reach the api at ${BASE}. is the backend running?`);
   }
@@ -36,15 +42,23 @@ export function isGitHubLink(text) {
  * on the server's computer or a GitHub link (which the server downloads first).
  * Returns { files, functions, errors } and, for GitHub, `repo` like "owner/name".
  */
-export function analyze(input) {
+export async function analyze(input) {
   const text = input.trim();
   const body = isGitHubLink(text) ? { repo: text } : { path: text };
 
-  return request("/api/analyze", {
+  // Sending the old project id lets the server replace this visitor's old project.
+  const result = await request("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  projectId = result.projectId;
+  return result;
+}
+
+/** What the server allows: { allowLocalPaths, allowGithub }. */
+export function getConfig() {
+  return request("/api/config");
 }
 
 /** Page of functions: { total, items }. params: search, file, limit, offset. */

@@ -9,6 +9,7 @@ starts it.
 ```bash
 cd backend
 npm start                    # listens on http://localhost:3000
+npm run dev                  # same, but restarts by itself when you change the code
 PORT=4000 npm start          # use another port (on Windows PowerShell: $env:PORT=4000; npm start)
 ```
 
@@ -23,9 +24,17 @@ Settings come from environment variables, or from a `backend/.env` file (copy [`
 | `PORT` | `3000` | Port the server listens on. |
 | `ALLOW_GITHUB` | on | Set to `false` to stop the server from downloading GitHub repositories (`POST /api/analyze` with `repo` then answers `403`). |
 | `ALLOWED_ROOTS` | empty | Folders that may be analyzed, separated by `;` on Windows and `:` on Linux and macOS. Empty means **any folder is allowed**. |
+| `ALLOW_LOCAL_PATHS` | on | Set to `false` on a public server: `{ "path": ... }` then answers `403`, and only GitHub links work. |
 | `CORS_ORIGIN` | `http://localhost:5173` | Web page addresses allowed to call the API from a browser, separated by `,`. |
+| `MAX_PROJECTS` | `20` | Projects kept in memory at once (one per visitor). The one used longest ago is dropped when full. |
+| `PROJECT_TTL_MINUTES` | `30` | A project not used for this long is forgotten. |
+| `MAX_FILES` | `3000` | A project with more JavaScript files is refused (`413`). |
+| `MAX_REPO_MB` | `200` | A downloaded repository bigger than this is refused and deleted (`413`). |
+| `MAX_DOWNLOADS` | `2` | GitHub downloads allowed at the same time. More get `429`. |
+| `RATE_LIMIT_MAX` | `30` | Analyze requests one visitor (by IP address) may make in each period. More get `429`. |
+| `RATE_LIMIT_WINDOW_MINUTES` | `10` | The length of that period. |
 
-`createApp({ allowedRoots, corsOrigins, allowGithub })` takes the same values as options, and the options win over the environment.
+`createApp({ allowedRoots, allowLocalPaths, allowGithub, corsOrigins, maxProjects, projectTtlMs, maxFiles, maxDownloads, rateLimit, cloner })` takes the same values as options, and the options win over the environment. `rateLimit: false` turns the limit off. Running this on the internet is explained in [deployment.md](deployment.md).
 
 ### Folder allow-list
 
@@ -43,9 +52,22 @@ A web page served from one address (for example the frontend at `http://localhos
 
 ## How it works
 
-The server remembers **one project at a time, in memory**: the last folder you
-analyzed. Call `POST /api/analyze` first. Every other endpoint reads that project.
-Analyzing again replaces it, and restarting the server forgets it.
+The server keeps **one project per visitor, in memory**. Call `POST /api/analyze`
+first. It answers with a `projectId`, and you send that id in the **`X-Project-Id`
+header** on every other request, so the server knows which project is yours and
+different visitors never see each other's project. (The web interface does this for you.)
+
+- Sending the old id again on `POST /api/analyze` replaces your old project.
+- A project that is not used for `PROJECT_TTL_MINUTES` is forgotten, and when the server holds `MAX_PROJECTS` projects the one used longest ago is dropped. Then the id answers `409` and you analyze again.
+- Restarting the server forgets every project.
+
+```bash
+# 1. analyze, and note the projectId in the answer
+curl -X POST localhost:3000/api/analyze -H "Content-Type: application/json" -d '{"path":"D:/my/project"}'
+
+# 2. send it back on later calls
+curl -H "X-Project-Id: <projectId>" "localhost:3000/api/functions?search=init"
+```
 
 All answers are JSON. Errors always look like this:
 
@@ -57,11 +79,25 @@ All answers are JSON. Errors always look like this:
 | --- | --- |
 | `200` | Success |
 | `400` | Bad input (missing or wrong value) |
-| `403` | The folder is outside `ALLOWED_ROOTS`, or GitHub downloads are turned off |
+| `403` | The folder is outside `ALLOWED_ROOTS`, folders are turned off (`ALLOW_LOCAL_PATHS=false`), or GitHub downloads are turned off |
 | `404` | The function id does not exist, or the GitHub repository was not found |
-| `409` | No project analyzed yet. Call `POST /api/analyze` first |
+| `409` | No `X-Project-Id` was sent, or the project is unknown or expired. Call `POST /api/analyze` |
+| `413` | The project is too big (too many files, or the repository is too large) |
+| `429` | Too many analyses from one visitor, or too many downloads at the moment (see `Retry-After`) |
 | `502` / `504` | The GitHub download failed / took too long |
 | `500` | Something unexpected went wrong (the details are printed in the server's terminal) |
+
+## `GET /api/health`
+
+Returns `{ "ok": true }`. Hosting platforms call it to check that the server is alive. It needs no project id.
+
+## `GET /api/config`
+
+What this server allows, so a web interface can show the right options. No project id needed.
+
+```json
+{ "allowLocalPaths": false, "allowGithub": true }
+```
 
 ## `POST /api/analyze`
 
@@ -77,15 +113,18 @@ curl -X POST localhost:3000/api/analyze   -H "Content-Type: application/json"   
 ```
 
 ```json
-{ "files": 3, "functions": 6, "errors": [] }
+{ "projectId": "0b9c5d0e-…", "files": 3, "functions": 6, "errors": [] }
 ```
 
+- `projectId`: send it in the `X-Project-Id` header on all later calls.
 - `files`: number of JavaScript files found.
 - `functions`: number of functions found in all files.
 - `errors`: files that could not be parsed, as `{ "file": "bad.js", "error": "message (line 1, column 5)" }`. A bad file never stops the rest.
 - `repo`: only for a GitHub project, the short name that was analyzed, for example `"octo/demo"` (or `"octo/demo@dev"` for a branch).
 
-`400` when `path` is missing, is not text, does not exist, or is a file instead of a folder, or when `repo` is not a GitHub link.
+Files bigger than 1 MB are skipped (they are almost always bundled or minified code).
+
+`400` when `path` is missing, is not text, does not exist, or is a file instead of a folder, or when `repo` is not a GitHub link. `413` when the project has more than `MAX_FILES` files.
 
 ### GitHub repositories
 
@@ -111,7 +150,7 @@ How it works:
 - The download is deleted when another project replaces it, so the temp folder does not fill up. A download left over after the server is killed can be removed by hand (`codeflow-repos` in the temp folder).
 - `ALLOWED_ROOTS` applies to `path`, not to downloads, because downloads always go to the server's own temp folder. To switch downloads off, set `ALLOW_GITHUB=false`.
 
-There is no limit on the size of a repository other than the 60-second timeout, so on a shared server also consider turning downloads off.
+A repository bigger than `MAX_REPO_MB` once downloaded is deleted and refused with `413`. At most `MAX_DOWNLOADS` downloads run at once.
 
 ## `GET /api/functions`
 
@@ -125,7 +164,7 @@ Lists the functions of the analyzed project.
 | `offset` | `0` | How many results to skip. A negative or non-number value becomes `0`. |
 
 ```bash
-curl "localhost:3000/api/functions?search=init"
+curl -H "X-Project-Id: <projectId>" "localhost:3000/api/functions?search=init"
 ```
 
 ```json
@@ -155,7 +194,7 @@ One function, with its source code.
 Write the `#` in an id as `%23` in the URL, because `#` starts a fragment in a URL.
 
 ```bash
-curl "localhost:3000/api/function?id=b.js%23init"
+curl -H "X-Project-Id: <projectId>" "localhost:3000/api/function?id=b.js%23init"
 ```
 
 ```json
@@ -185,7 +224,7 @@ What does a function call, and who calls it. They use the [Graph](graph.md) buil
 | `depth` | `1` | How many levels to follow, from 1 to 5. `1` is direct calls only. A missing or invalid value becomes `1`. |
 
 ```bash
-curl "localhost:3000/api/callees?id=main.js%23main"
+curl -H "X-Project-Id: <projectId>" "localhost:3000/api/callees?id=main.js%23main"
 ```
 
 ```json
@@ -217,7 +256,7 @@ The shortest chain of calls from one function to another.
 | `maxDepth` | `10` | Give up after this many calls in a row, from 1 to 20. |
 
 ```bash
-curl "localhost:3000/api/path?from=b.js%23init&to=b.js%23helper"
+curl -H "X-Project-Id: <projectId>" "localhost:3000/api/path?from=b.js%23init&to=b.js%23helper"
 ```
 
 ```json
@@ -230,4 +269,4 @@ curl "localhost:3000/api/path?from=b.js%23init&to=b.js%23helper"
 
 ## Not built yet
 
-- Login or an API key. The API has no users, so anyone who can reach the port can use it. Keep it on your own computer, or behind something that adds a login, and set `ALLOWED_ROOTS`.
+- Login or an API key. The API has no users. Rate limits, project limits and `ALLOW_LOCAL_PATHS=false` make a public demo reasonably safe, but anyone can still use it. See [deployment.md](deployment.md).

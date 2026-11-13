@@ -59,7 +59,7 @@ Or use it over HTTP:
 
 ```bash
 cd backend
-npm start                                   # http://localhost:3000
+npm start                                   # http://localhost:3000  (npm run dev restarts on changes)
 curl -X POST localhost:3000/api/analyze -H "Content-Type: application/json"   -d '{"path":"/path/to/your/project"}'
 curl -X POST localhost:3000/api/analyze -H "Content-Type: application/json"   -d '{"repo":"https://github.com/owner/name"}'
 curl "localhost:3000/api/functions?search=init"
@@ -79,6 +79,13 @@ Open <http://localhost:5173>, enter a project folder **or a GitHub link** and pr
 searchable function list, the source of each function with who calls it and what
 it calls, a call graph, and a path finder, in dark or light mode. See
 [docs/frontend.md](docs/frontend.md).
+
+## Deploy it
+
+The web interface can be published on **GitHub Pages** and the API on **Render**
+(Docker). The Dockerfile, the Render blueprint and the GitHub workflows are in the
+repository, and the guide with every step, the settings and the protections for a
+public server is in [docs/deployment.md](docs/deployment.md).
 
 ## How it works
 
@@ -116,6 +123,7 @@ The full explanation, with a worked example, is in
 - [x] CORS for the frontend, and an allow-list of folders the API may read
 - [x] Web interface: function list, source and call lists, zoomable graph view, path finder, dark and light mode
 - [x] Analyze a public GitHub repository by pasting its link (needs git on the server)
+- [x] Ready for a public server: one project per visitor, limits, Docker image, GitHub Pages workflow (see deployment.md)
 - [ ] Tree view of calls, and remembering the open function after a reload
 - [ ] Linking `new SomeClass()` to the class
 - [ ] Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`)
@@ -160,6 +168,7 @@ projects, they run CodeFlow on its own source code and check the real
 | [graph.md](docs/graph.md) | Callers, callees and paths |
 | [api.md](docs/api.md) | The HTTP endpoints |
 | [frontend.md](docs/frontend.md) | The web interface |
+| [deployment.md](docs/deployment.md) | Putting it on the internet (Render and GitHub Pages) |
 | [architecture-diagram.md](docs/architecture-diagram.md) | The architecture as a diagram |
 | [packages.md](docs/packages.md) | Packages used |
 | [initialSetup.md](docs/initialSetup.md) | The original build plan for the whole app |

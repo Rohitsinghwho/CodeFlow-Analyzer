@@ -5,6 +5,18 @@ import path from "path";
  * Finds the JavaScript files of a project folder.
  */
 class Scanner {
+  #maxFileBytes;
+
+  /**
+   * @param {object} [options]
+   * @param {number} [options.maxFileBytes] Files bigger than this are skipped (default 1 MB).
+   *   Huge files are almost always bundled or minified code, which is slow to parse
+   *   and not useful to read.
+   */
+  constructor({ maxFileBytes = 1024 * 1024 } = {}) {
+    this.#maxFileBytes = maxFileBytes;
+  }
+
   /**
    * Walk `directory` (including sub-folders) and list its JS files.
    *
@@ -31,6 +43,10 @@ class Scanner {
         if (entry.isDirectory()) {
           await visit(fullPath);
         } else if (entry.isFile() && extensions.has(path.extname(entry.name).toLowerCase())) {
+          // Skip very big files (bundles, minified code).
+          const { size } = await fs.stat(fullPath);
+          if (size > this.#maxFileBytes) continue;
+
           // Store the path relative to the project root, with "/" even on Windows,
           // so ids look the same on every machine.
           files.push(path.relative(rootPath, fullPath).split(path.sep).join("/"));
