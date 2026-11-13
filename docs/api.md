@@ -1,6 +1,6 @@
 # HTTP API
 
-The API lets other programs (and the future web interface) use CodeFlow over HTTP.
+The API lets other programs (like the [web interface](frontend.md)) use CodeFlow over HTTP.
 It is built with Express in `backend/api/createApp.js`, and `backend/server.js`
 starts it.
 
@@ -21,10 +21,11 @@ Settings come from environment variables, or from a `backend/.env` file (copy [`
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `3000` | Port the server listens on. |
+| `ALLOW_GITHUB` | on | Set to `false` to stop the server from downloading GitHub repositories (`POST /api/analyze` with `repo` then answers `403`). |
 | `ALLOWED_ROOTS` | empty | Folders that may be analyzed, separated by `;` on Windows and `:` on Linux and macOS. Empty means **any folder is allowed**. |
 | `CORS_ORIGIN` | `http://localhost:5173` | Web page addresses allowed to call the API from a browser, separated by `,`. |
 
-`createApp({ allowedRoots, corsOrigins })` takes the same two values as options, and the options win over the environment.
+`createApp({ allowedRoots, corsOrigins, allowGithub })` takes the same values as options, and the options win over the environment.
 
 ### Folder allow-list
 
@@ -56,21 +57,23 @@ All answers are JSON. Errors always look like this:
 | --- | --- |
 | `200` | Success |
 | `400` | Bad input (missing or wrong value) |
-| `403` | The folder is outside `ALLOWED_ROOTS` |
-| `404` | The function id does not exist |
+| `403` | The folder is outside `ALLOWED_ROOTS`, or GitHub downloads are turned off |
+| `404` | The function id does not exist, or the GitHub repository was not found |
 | `409` | No project analyzed yet. Call `POST /api/analyze` first |
+| `502` / `504` | The GitHub download failed / took too long |
 | `500` | Something unexpected went wrong (the details are printed in the server's terminal) |
 
 ## `POST /api/analyze`
 
-Reads a project folder and remembers it.
+Reads a project and remembers it. The project is either a folder on the server's computer or a public GitHub repository.
 
-**Body:** `{ "path": "<folder>" }`. The folder is read on the machine where the server runs.
+**Body:** one of
+
+- `{ "path": "<folder>" }`: a folder on the machine where the server runs.
+- `{ "repo": "<github link>" }`: a public repository. If both are sent, `repo` wins.
 
 ```bash
-curl -X POST localhost:3000/api/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"path":"D:/CodeFlow/backend/__test__/fixtures/project"}'
+curl -X POST localhost:3000/api/analyze   -H "Content-Type: application/json"   -d '{"path":"D:/CodeFlow/backend/__test__/fixtures/project"}'
 ```
 
 ```json
@@ -80,8 +83,35 @@ curl -X POST localhost:3000/api/analyze \
 - `files`: number of JavaScript files found.
 - `functions`: number of functions found in all files.
 - `errors`: files that could not be parsed, as `{ "file": "bad.js", "error": "message (line 1, column 5)" }`. A bad file never stops the rest.
+- `repo`: only for a GitHub project, the short name that was analyzed, for example `"octo/demo"` (or `"octo/demo@dev"` for a branch).
 
-`400` when `path` is missing, is not text, does not exist, or is a file instead of a folder.
+`400` when `path` is missing, is not text, does not exist, or is a file instead of a folder, or when `repo` is not a GitHub link.
+
+### GitHub repositories
+
+```bash
+curl -X POST localhost:3000/api/analyze   -H "Content-Type: application/json"   -d '{"repo":"https://github.com/owner/name"}'
+```
+
+Accepted links (with or without `https://` and `www.`, and with or without `.git`):
+
+| Link | Downloads |
+| --- | --- |
+| `https://github.com/owner/name` | the default branch |
+| `https://github.com/owner/name/tree/some-branch` | that branch or tag (names with `/`, like `feature/login`, work) |
+
+Anything else is refused with `400`: other websites, links to issues or files, SSH links (`git@github.com:...`), and names with unusual characters.
+
+How it works:
+
+- The server needs **git installed**. It runs `git clone --depth 1`, which downloads only the newest files, not the history, into its own folder inside the system's temp folder.
+- Nothing from the repository is ever run. The files are only read. Links to symbolic links are not created.
+- Only **public** repositories work. A private or missing repository answers `404`. There is no login.
+- A download that takes longer than 60 seconds is stopped (`504`). Other git failures answer `502`.
+- The download is deleted when another project replaces it, so the temp folder does not fill up. A download left over after the server is killed can be removed by hand (`codeflow-repos` in the temp folder).
+- `ALLOWED_ROOTS` applies to `path`, not to downloads, because downloads always go to the server's own temp folder. To switch downloads off, set `ALLOW_GITHUB=false`.
+
+There is no limit on the size of a repository other than the 60-second timeout, so on a shared server also consider turning downloads off.
 
 ## `GET /api/functions`
 

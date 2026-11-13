@@ -4,14 +4,20 @@
 //   3. Call linking             - linkCalls rules on small fixtures
 //   4. CodeFlow on its own code - checks the real "who calls whom" of this repo
 //   5. HTTP API                 - the Express endpoints, called over a real local port
+//   6. GitHub links             - parsing links, downloading a repository (offline), the API option
 // Run with `npm test` from the backend/ folder.
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 
 import Analyzer from "../analyzer/Analyzer.js";
 import createApp from "../api/createApp.js";
+import RepoCloner, { RepoError } from "../api/RepoCloner.js";
 import CodeFlow from "../CodeFlow.js";
 import indexMaps, { IndexMaps } from "../indexes/IndexMaps.js";
 import { Linker } from "../linker/Linker.js";
@@ -778,4 +784,252 @@ test("api: analyze reports files that fail to parse, and replaces the old projec
 
   const { body: list } = await callApi("/api/functions");
   assert.deepEqual(list.items.map((fn) => fn.id), ["ok.js#fine"]);
+});
+
+// ---------------------------------------------------------------------------
+// 6. GitHub links
+//
+// No test touches the internet. Link parsing is plain text work, the download
+// is tested against a small git repository created in a temp folder, and the
+// API tests use a fake downloader.
+// ---------------------------------------------------------------------------
+
+const git = promisify(execFile);
+
+test("github: links are understood, and anything else is refused", () => {
+  const cloner = new RepoCloner();
+
+  const accepted = [
+    ["https://github.com/octo/demo", { owner: "octo", name: "demo", ref: null, display: "octo/demo" }],
+    ["github.com/octo/demo", { owner: "octo", name: "demo", ref: null, display: "octo/demo" }],
+    ["  HTTPS://www.GitHub.com/octo/demo.git/  ", { owner: "octo", name: "demo", ref: null, display: "octo/demo" }],
+    ["https://github.com/octo/demo?tab=readme#top", { owner: "octo", name: "demo", ref: null, display: "octo/demo" }],
+    ["https://github.com/octo/demo/tree/main", { owner: "octo", name: "demo", ref: "main", display: "octo/demo@main" }],
+    ["https://github.com/octo/demo/tree/feature/login", { owner: "octo", name: "demo", ref: "feature/login", display: "octo/demo@feature/login" }],
+    ["https://github.com/octo/my.repo_1-x", { owner: "octo", name: "my.repo_1-x", ref: null, display: "octo/my.repo_1-x" }],
+  ];
+  for (const [link, expected] of accepted) {
+    assert.deepEqual(cloner.parse(link), expected, link);
+  }
+
+  const refused = [
+    "",
+    "not a link",
+    "https://example.com/octo/demo", // not github.com
+    "https://github.com.evil.com/octo/demo", // looks like github.com but is not
+    "https://evil.com/github.com/octo/demo",
+    "git@github.com:octo/demo.git", // ssh links are not supported
+    "https://github.com/octo", // no repository
+    "https://github.com/octo/demo/issues", // not a repository root or branch link
+    "https://github.com/octo/demo/tree", // no branch name
+    "https://github.com/octo/de mo",
+    "https://github.com/octo/demo;touch-x",
+    "https://github.com/../demo",
+    "https://github.com/octo/demo/tree/--upload-pack=evil", // would look like a git option
+    "https://github.com/octo/demo/tree/a..b",
+    "https://github.com/octo/demo/tree/x.lock",
+    5,
+    null,
+    undefined,
+  ];
+  for (const link of refused) {
+    assert.equal(cloner.parse(link), null, String(link));
+  }
+});
+
+// Make a small git repository in a temp folder, with a main branch and a "dev" branch.
+async function makeLocalRepo(root) {
+  const repo = path.join(root, "source");
+  await fs.mkdir(repo, { recursive: true });
+  const run = (...args) => git(
+    "git",
+    ["-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", ...args],
+    { cwd: repo },
+  );
+
+  await run("init", "--quiet", "--initial-branch=main");
+  await fs.writeFile(path.join(repo, "a.js"), "export function fromMain() {}\n");
+  await run("add", ".");
+  await run("commit", "--quiet", "-m", "first");
+  await run("checkout", "--quiet", "-b", "dev");
+  await fs.writeFile(path.join(repo, "b.js"), "export function fromDev() {}\n");
+  await run("add", ".");
+  await run("commit", "--quiet", "-m", "dev");
+  await run("checkout", "--quiet", "main");
+  return repo;
+}
+
+test("github: a repository is downloaded into its own folder and removed again", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codeflow-test-"));
+
+  try {
+    const source = await makeLocalRepo(root);
+    // The downloader normally uses github.com. Here it clones the local repository.
+    const cloner = new RepoCloner({
+      baseFolder: path.join(root, "downloads"),
+      cloneUrlFor: () => pathToFileURL(source).href,
+    });
+
+    // Default branch: only main's files.
+    const main = await cloner.clone("https://github.com/octo/demo");
+    assert.equal(main.display, "octo/demo");
+    assert.deepEqual((await fs.readdir(main.folder)).filter((name) => name.endsWith(".js")), ["a.js"]);
+
+    // A /tree/<branch> link downloads that branch.
+    const dev = await cloner.clone("https://github.com/octo/demo/tree/dev");
+    assert.ok((await fs.readdir(dev.folder)).includes("b.js"));
+    assert.notEqual(main.folder, dev.folder);
+
+    // The downloaded files can be analyzed like any folder.
+    const { files } = await new CodeFlow().analyze(dev.folder);
+    assert.deepEqual(files, ["a.js", "b.js"]);
+
+    // remove() deletes the download.
+    await cloner.remove(main.folder);
+    await assert.rejects(fs.stat(main.folder));
+
+    // ...but refuses to touch a folder it did not create.
+    const outside = path.join(root, "keep-me");
+    await fs.mkdir(path.join(outside, "inner"), { recursive: true });
+    await cloner.remove(path.join(outside, "inner"));
+    assert.ok((await fs.stat(path.join(outside, "inner"))).isDirectory());
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
+test("github: a failed download throws a RepoError and leaves no folder behind", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "codeflow-test-"));
+
+  try {
+    const downloads = path.join(root, "downloads");
+    const cloner = new RepoCloner({
+      baseFolder: downloads,
+      cloneUrlFor: () => pathToFileURL(path.join(root, "does-not-exist")).href,
+    });
+
+    await assert.rejects(
+      cloner.clone("https://github.com/octo/demo"),
+      (error) => error instanceof RepoError && error.status === 502,
+    );
+    assert.deepEqual(await fs.readdir(downloads), []);
+
+    // A link that is not a github link is refused before anything is downloaded.
+    await assert.rejects(
+      cloner.clone("https://example.com/octo/demo"),
+      (error) => error instanceof RepoError && error.status === 400,
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
+// A downloader that does not use the internet: every "download" is the fixture project.
+function fakeCloner({ failWith } = {}) {
+  const realParser = new RepoCloner();
+  const removed = [];
+  return {
+    removed,
+    parse: (link) => realParser.parse(link),
+    clone: async () => {
+      if (failWith) throw failWith;
+      return { folder: fixtureRoot, display: "octo/demo" };
+    },
+    remove: async (folder) => {
+      removed.push(folder);
+    },
+  };
+}
+
+async function postAnalyze(base, body) {
+  const response = await fetch(`${base}/api/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test("api: a github link is downloaded and analyzed like a folder", async () => {
+  const api = await startApi({ allowedRoots: [], cloner: fakeCloner() });
+
+  try {
+    const analyzed = await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+    assert.equal(analyzed.status, 200);
+    assert.deepEqual(analyzed.body, { files: 3, functions: 6, errors: [], repo: "octo/demo" });
+
+    // The other endpoints now work on the downloaded project.
+    const list = await (await fetch(`${api.base}/api/functions?search=main`)).json();
+    assert.deepEqual(list.items.map((fn) => fn.id), ["main.js#main"]);
+  } finally {
+    api.close();
+  }
+});
+
+test("api: a downloaded project is deleted when another project replaces it", async () => {
+  const cloner = fakeCloner();
+  const api = await startApi({ allowedRoots: [], cloner });
+
+  try {
+    await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+    assert.deepEqual(cloner.removed, []); // still in use
+
+    await postAnalyze(api.base, { path: fixture("calls") });
+    assert.deepEqual(cloner.removed, [fixtureRoot]); // the old download was cleaned up
+
+    // A normal folder is never "removed".
+    await postAnalyze(api.base, { path: fixture("project") });
+    assert.deepEqual(cloner.removed, [fixtureRoot]);
+  } finally {
+    api.close();
+  }
+});
+
+test("api: bad github links are refused with 400", async () => {
+  const api = await startApi({ allowedRoots: [], cloner: fakeCloner() });
+
+  try {
+    for (const repo of ["https://example.com/octo/demo", "https://github.com/octo", "nonsense", "", 5, null]) {
+      const { status, body } = await postAnalyze(api.base, { repo });
+      assert.equal(status, 400, String(repo));
+      assert.match(body.error, /github\.com\/owner\/name/);
+    }
+  } finally {
+    api.close();
+  }
+});
+
+test("api: download problems are reported with the right status", async () => {
+  const cases = [
+    [new RepoError("repository (or branch) not found. private repositories are not supported", 404), 404],
+    [new RepoError("downloading took longer than 60 seconds", 504), 504],
+    [new Error("something unexpected"), 500],
+  ];
+
+  for (const [failWith, expectedStatus] of cases) {
+    const api = await startApi({ allowedRoots: [], cloner: fakeCloner({ failWith }) });
+    try {
+      const { status, body } = await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+      assert.equal(status, expectedStatus);
+      assert.equal(typeof body.error, "string");
+      // An unexpected error must not leak its message.
+      if (expectedStatus === 500) assert.equal(body.error, "Something went wrong");
+    } finally {
+      api.close();
+    }
+  }
+});
+
+test("api: github downloads can be turned off", async () => {
+  const api = await startApi({ allowedRoots: [], allowGithub: false, cloner: fakeCloner() });
+
+  try {
+    const { status } = await postAnalyze(api.base, { repo: "https://github.com/octo/demo" });
+    assert.equal(status, 403);
+
+    // Folders still work.
+    assert.equal((await postAnalyze(api.base, { path: fixtureRoot })).status, 200);
+  } finally {
+    api.close();
+  }
 });

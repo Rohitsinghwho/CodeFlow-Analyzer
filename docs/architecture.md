@@ -21,6 +21,7 @@ runs them in order. A fifth class, `Graph`, then answers questions about the res
 | **Utilities** | `backend/utils/Utilities.js` | Small tree helpers (`isNode`, `childNodes`) | AST nodes | Booleans or node lists |
 | **Linker** | `backend/linker/Linker.js` | Connects files: imports, exports and calls | All per-file results | Resolved paths, ids and call edges |
 | **IndexMaps** | `backend/indexes/IndexMaps.js` | Stores the Linker's lookup tables | Exports and functions per file | Fast lookups |
+| **RepoCloner** | `backend/api/RepoCloner.js` | Downloads a public GitHub repository (`git clone --depth 1`) into a temp folder for the API | A GitHub link | A folder to analyze |
 | **API** | `backend/api/createApp.js` | Exposes analyze, list functions, get a function, callers, callees and paths over HTTP (see [api.md](api.md)) | HTTP requests | JSON |
 | **Graph** | `backend/graph/Graph.js` | Answers callers, callees and path questions | Call edges from `linkCalls` | Edges with a `depth`, or a chain of ids |
 
@@ -96,11 +97,11 @@ other files, so one broken file never stops the run.
 
 ## Not built yet
 
-- The frontend described in `docs/initialSetup.md`.
+- A tree view of calls in the frontend (see [frontend.md](frontend.md)).
 - Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`).
 - Linking classes: `new Scanner()` is not connected to the `Scanner` class, because only functions are indexed.
 
 ## Related docs
 
-[scanner.md](scanner.md) · [parser.md](parser.md) · [linker.md](linker.md) · [graph.md](graph.md) · [api.md](api.md) ·
+[scanner.md](scanner.md) · [parser.md](parser.md) · [linker.md](linker.md) · [graph.md](graph.md) · [api.md](api.md) · [frontend.md](frontend.md) ·
 [packages.md](packages.md) · [initialSetup.md](initialSetup.md)

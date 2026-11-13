@@ -12,7 +12,7 @@ so it does not run your code and does not guess from text patterns.
 
 > **Status:** the backend engine works and is tested, and an HTTP API can analyze
 > a project, list its functions, show a function's source, and answer callers,
-> callees and paths. The web interface is not built yet. See [What is built](#what-is-built).
+> callees and paths. A web interface (React) lets you explore all of this in a browser, in dark or light mode. See [What is built](#what-is-built).
 
 ## Quick start
 
@@ -61,10 +61,24 @@ Or use it over HTTP:
 cd backend
 npm start                                   # http://localhost:3000
 curl -X POST localhost:3000/api/analyze -H "Content-Type: application/json"   -d '{"path":"/path/to/your/project"}'
+curl -X POST localhost:3000/api/analyze -H "Content-Type: application/json"   -d '{"repo":"https://github.com/owner/name"}'
 curl "localhost:3000/api/functions?search=init"
 ```
 
 See [docs/api.md](docs/api.md) for every endpoint and the settings (`PORT`, `ALLOWED_ROOTS`, `CORS_ORIGIN`).
+
+Or use the **web interface**. Start the API as above, then in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev                                 # http://localhost:5173
+```
+
+Open <http://localhost:5173>, enter a project folder **or a GitHub link** and press analyze. You get a
+searchable function list, the source of each function with who calls it and what
+it calls, a call graph, and a path finder, in dark or light mode. See
+[docs/frontend.md](docs/frontend.md).
 
 ## How it works
 
@@ -100,7 +114,9 @@ The full explanation, with a worked example, is in
 - [x] HTTP API: analyze a project, list functions, get a function with its source
 - [x] API endpoints for callers, callees and paths
 - [x] CORS for the frontend, and an allow-list of folders the API may read
-- [ ] Web interface (function list, detail panel, graph view)
+- [x] Web interface: function list, source and call lists, zoomable graph view, path finder, dark and light mode
+- [x] Analyze a public GitHub repository by pasting its link (needs git on the server)
+- [ ] Tree view of calls, and remembering the open function after a reload
 - [ ] Linking `new SomeClass()` to the class
 - [ ] Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`)
 
@@ -119,7 +135,7 @@ backend/            the engine (Node.js, ES modules)
   api/                Express app (createApp.js); server.js starts it
   __test__/           all tests (codeflow.test.js) and fixture projects
 docs/               documentation
-frontend/           planned, empty for now
+frontend/           the web interface (React + Vite)
 ```
 
 ## Tests
@@ -143,10 +159,11 @@ projects, they run CodeFlow on its own source code and check the real
 | [linker.md](docs/linker.md) | Imports, exports and call linking |
 | [graph.md](docs/graph.md) | Callers, callees and paths |
 | [api.md](docs/api.md) | The HTTP endpoints |
+| [frontend.md](docs/frontend.md) | The web interface |
 | [architecture-diagram.md](docs/architecture-diagram.md) | The architecture as a diagram |
 | [packages.md](docs/packages.md) | Packages used |
 | [initialSetup.md](docs/initialSetup.md) | The original build plan for the whole app |
 
 ## Built with
 
-Node.js, [Acorn](https://github.com/acornjs/acorn) (parser) and Express (planned API).
+Node.js, [Acorn](https://github.com/acornjs/acorn) (parser), Express (API), React and Vite (web interface) and [Cytoscape.js](https://js.cytoscape.org) (graph).

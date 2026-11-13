@@ -5,7 +5,7 @@ worked example, see [architecture.md](architecture.md).
 
 ```mermaid
 flowchart LR
-  client(["HTTP client"])
+  client(["Web interface<br/>(frontend/) or other client"])
   folder(["Project folder"])
   fs[("File system")]
   acorn["Acorn<br/>npm package"]
@@ -19,12 +19,17 @@ flowchart LR
   end
 
   api["API<br/>Express routes"]
+  github(["GitHub<br/>public repositories"])
+  cloner["RepoCloner<br/>git clone to a temp folder"]
   rules["RuleSet<br/>recognises things in a tree node"]
   utils["Utilities<br/>tree helpers"]
   indexes["IndexMaps<br/>lookup tables"]
 
   client -->|"requests"| api
   api -->|"analyze, buildGraph"| codeflow
+  api -->|"repo link"| cloner
+  cloner -->|"downloads from"| github
+  cloner -->|"temp folder"| scan
   folder -->|"path"| scan
   scan -->|"file paths"| parse
   parse -->|"AST"| analyze
@@ -52,6 +57,7 @@ flowchart LR
 | Linker | Resolves import paths, exports and calls across files | `backend/linker/` |
 | IndexMaps | Lookup tables the Linker fills: exports and top-level functions per file | `backend/indexes/` |
 | Graph | Answers who calls whom, and finds the shortest call path | `backend/graph/` |
+| RepoCloner | Downloads a public GitHub repository with `git clone --depth 1` into a temp folder, and deletes it when replaced | `backend/api/RepoCloner.js` |
 | API | Express app that remembers the last analyzed project and serves it as JSON | `backend/api/`, `backend/server.js` |
 
 ## Notes
@@ -59,4 +65,4 @@ flowchart LR
 - Data does not pass straight from step to step. `CodeFlow` calls each step and hands the result to the next, so the arrows show the order and the data, not direct calls.
 - `Graph` is created on request with `CodeFlow.buildGraph(fileResults)`, after `analyze()` has run. It is not part of `analyze()`.
 - The API only analyzes folders inside `ALLOWED_ROOTS` (when set) and only answers browsers from `CORS_ORIGIN`. It keeps the last analyzed project in memory, so one server handles one project at a time. It serves analyze, list functions, get a function, and the callers, callees and path questions answered by `Graph`.
-- The web interface is planned but has no code yet, so it is not drawn.
+- The web interface (`frontend/`, React) is the main HTTP client. It only talks to the API, never to the engine directly. See [frontend.md](frontend.md).

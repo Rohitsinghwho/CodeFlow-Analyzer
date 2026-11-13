@@ -3,6 +3,7 @@ import CodeFlow from "../CodeFlow.js";
 import fs from "fs/promises";
 import path from "path";
 import dotenv from 'dotenv'
+import RepoCloner, { RepoError } from "./RepoCloner.js";
 
 
 // Split a setting like "a;b" into ["a", "b"], ignoring empty parts.
@@ -22,6 +23,10 @@ function splitList(text, separator, fallback = []) {
  *   not fine on a shared server).
  * @param {string[]} [options.corsOrigins] Web page addresses allowed to call the
  *   API from a browser. Default: the CORS_ORIGIN setting, or the Vite dev server.
+ * @param {boolean} [options.allowGithub] Whether `{ "repo": "<github link>" }` may be
+ *   used to download and analyze a GitHub repository. Default: on, unless the
+ *   ALLOW_GITHUB setting is "false".
+ * @param {RepoCloner} [options.cloner] Downloads repositories (tests replace it).
  */
 function createApp(options = {}) {
   dotenv.config();
@@ -35,6 +40,9 @@ function createApp(options = {}) {
       "http://localhost:5173",
       "http://127.0.0.1:5173",
     ]);
+
+  const allowGithub = options.allowGithub ?? process.env.ALLOW_GITHUB !== "false";
+  const cloner = options.cloner ?? new RepoCloner();
 
   const codeFlow = new CodeFlow();
   let project = null;
@@ -99,7 +107,66 @@ function createApp(options = {}) {
   // Is `value` a non-empty piece of text?
   const isText = (value) => typeof value === "string" && value !== "";
 
+  // Analyze a folder and make it the project every other route reads.
+  // `downloadedFolder` is set when the folder is a downloaded GitHub repository,
+  // so it can be deleted when it is replaced. Returns what the client is told.
+  const openProject = async (folder, { downloadedFolder = null, repo = null } = {}) => {
+    const result = await codeFlow.analyze(folder);
+    const previous = project;
+    project = {
+      rootPath: folder,
+      downloadedFolder,
+      ...result,
+      graph: codeFlow.buildGraph(result.fileResults),
+    };
+
+    // The old project may have been a download that nobody needs any more.
+    if (previous?.downloadedFolder) {
+      await cloner.remove(previous.downloadedFolder).catch(() => {});
+    }
+
+    return {
+      files: result.files.length,
+      functions: result.fileResults.reduce((total, r) => total + r.functions.length, 0),
+      errors: result.errors,
+      ...(repo ? { repo } : {}),
+    };
+  };
+
   app.post("/api/analyze", async (req, res) => {
+    // A GitHub link: download the repository, then analyze the downloaded folder.
+    if (req.body?.repo !== undefined) {
+      const link = req.body.repo;
+      if (!allowGithub) {
+        return res.status(403).json({ error: "Downloading from GitHub is turned off" });
+      }
+      if (typeof link !== "string" || !cloner.parse(link)) {
+        return res.status(400).json({ error: "repo must be a link like https://github.com/owner/name" });
+      }
+
+      let downloaded;
+      try {
+        downloaded = await cloner.clone(link);
+      } catch (error) {
+        if (error instanceof RepoError) {
+          return res.status(error.status).json({ error: error.message });
+        }
+        throw error;
+      }
+
+      try {
+        const reply = await openProject(downloaded.folder, {
+          downloadedFolder: downloaded.folder,
+          repo: downloaded.display,
+        });
+        return res.status(200).json(reply);
+      } catch (error) {
+        await cloner.remove(downloaded.folder).catch(() => {});
+        throw error;
+      }
+    }
+
+    // Otherwise: a folder on the server's computer.
     const folder = req.body?.path;
     if (typeof folder !== "string" || folder.trim() === "") {
       return res.status(400).json({ error: "path must be a folder path" });
@@ -119,21 +186,7 @@ function createApp(options = {}) {
         .status(400)
         .json({ error: "path must be a folder, not a file" });
     }
-    const result = await codeFlow.analyze(folder);
-    project = {
-      rootPath: folder,
-      ...result,
-      graph: codeFlow.buildGraph(result.fileResults),
-    };
-
-    res.status(200).json({
-      files: result.files.length,
-      functions: result.fileResults.reduce(
-        (total, r) => total + r.functions.length,
-        0,
-      ),
-      errors: result.errors,
-    });
+    res.status(200).json(await openProject(folder));
   });
 
   app.get("/api/functions", async (req, res) => {
