@@ -10,8 +10,9 @@ Point it at a folder and it can tell you:
 It reads the code with a real parser ([Acorn](https://github.com/acornjs/acorn)),
 so it does not run your code and does not guess from text patterns.
 
-> **Status:** the backend engine works and is tested. The HTTP API and the web
-> interface are not built yet. See [What is built](#what-is-built).
+> **Status:** the backend engine works and is tested, and a first HTTP API can
+> analyze a project, list its functions and show a function's source. Callers and
+> paths over HTTP, and the web interface, are not built yet. See [What is built](#what-is-built).
 
 ## Quick start
 
@@ -54,6 +55,17 @@ name matched (for example `obj.save()` on an object whose type is unknown).
 
 Files that cannot be parsed do not stop the run. They are listed in `errors`.
 
+Or use it over HTTP:
+
+```bash
+cd backend
+npm start                                   # http://localhost:3000
+curl -X POST localhost:3000/api/analyze -H "Content-Type: application/json"   -d '{"path":"/path/to/your/project"}'
+curl "localhost:3000/api/functions?search=init"
+```
+
+See [docs/api.md](docs/api.md) for every endpoint.
+
 ## How it works
 
 Four steps, run in order by the `CodeFlow` class, then a fifth to ask questions:
@@ -85,7 +97,8 @@ The full explanation, with a worked example, is in
 - [x] ES `import` / `export` and CommonJS `require`
 - [x] Call linking with `certain` and `guess` confidence
 - [x] Callers, callees and shortest path, safe against recursion and circles
-- [ ] HTTP API (Express is installed, no routes yet)
+- [x] HTTP API: analyze a project, list functions, get a function with its source
+- [ ] API endpoints for callers, callees and paths
 - [ ] Web interface (function list, detail panel, graph view)
 - [ ] Linking `new SomeClass()` to the class
 - [ ] Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`)
@@ -102,6 +115,7 @@ not prove two functions are unrelated.
 backend/            the engine (Node.js, ES modules)
   CodeFlow.js         entry class that runs the pipeline
   scanner/ parser/ analyzer/ linker/ graph/ indexes/ utils/
+  api/                Express app (createApp.js); server.js starts it
   __test__/           all tests (codeflow.test.js) and fixture projects
 docs/               documentation
 frontend/           planned, empty for now
@@ -127,6 +141,8 @@ projects, they run CodeFlow on its own source code and check the real
 | [parser.md](docs/parser.md) | Parser, Analyzer, RuleSet and what is extracted |
 | [linker.md](docs/linker.md) | Imports, exports and call linking |
 | [graph.md](docs/graph.md) | Callers, callees and paths |
+| [api.md](docs/api.md) | The HTTP endpoints |
+| [architecture-diagram.md](docs/architecture-diagram.md) | The architecture as a diagram |
 | [packages.md](docs/packages.md) | Packages used |
 | [initialSetup.md](docs/initialSetup.md) | The original build plan for the whole app |
 

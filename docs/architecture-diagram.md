@@ -5,6 +5,7 @@ worked example, see [architecture.md](architecture.md).
 
 ```mermaid
 flowchart LR
+  client(["HTTP client"])
   folder(["Project folder"])
   fs[("File system")]
   acorn["Acorn<br/>npm package"]
@@ -17,10 +18,13 @@ flowchart LR
     graphq["Graph<br/>callers, callees, paths"]
   end
 
+  api["API<br/>Express routes"]
   rules["RuleSet<br/>recognises things in a tree node"]
   utils["Utilities<br/>tree helpers"]
   indexes["IndexMaps<br/>lookup tables"]
 
+  client -->|"requests"| api
+  api -->|"analyze, buildGraph"| codeflow
   folder -->|"path"| scan
   scan -->|"file paths"| parse
   parse -->|"AST"| analyze
@@ -48,9 +52,11 @@ flowchart LR
 | Linker | Resolves import paths, exports and calls across files | `backend/linker/` |
 | IndexMaps | Lookup tables the Linker fills: exports and top-level functions per file | `backend/indexes/` |
 | Graph | Answers who calls whom, and finds the shortest call path | `backend/graph/` |
+| API | Express app that remembers the last analyzed project and serves it as JSON | `backend/api/`, `backend/server.js` |
 
 ## Notes
 
 - Data does not pass straight from step to step. `CodeFlow` calls each step and hands the result to the next, so the arrows show the order and the data, not direct calls.
 - `Graph` is created on request with `CodeFlow.buildGraph(fileResults)`, after `analyze()` has run. It is not part of `analyze()`.
-- The HTTP API (Express) and the web interface are planned but have no code yet, so they are not drawn.
+- The API keeps the last analyzed project in memory, so one server handles one project at a time. It currently serves analyze, list functions and get a function; callers, callees and paths are not exposed yet.
+- The web interface is planned but has no code yet, so it is not drawn.

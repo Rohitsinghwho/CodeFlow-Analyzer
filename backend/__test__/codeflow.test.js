@@ -3,13 +3,15 @@
 //   2. Whole pipeline           - CodeFlow end to end, errors, separate instances
 //   3. Call linking             - linkCalls rules on small fixtures
 //   4. CodeFlow on its own code - checks the real "who calls whom" of this repo
+//   5. HTTP API                 - the Express endpoints, called over a real local port
 // Run with `npm test` from the backend/ folder.
 import assert from "node:assert/strict";
 import path from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import Analyzer from "../analyzer/Analyzer.js";
+import createApp from "../api/createApp.js";
 import CodeFlow from "../CodeFlow.js";
 import indexMaps, { IndexMaps } from "../indexes/IndexMaps.js";
 import { Linker } from "../linker/Linker.js";
@@ -471,4 +473,155 @@ test("`new Scanner()` in CodeFlow is linked to the Scanner class", {
   const callees = graph.getCallees(constructorId, 1).map((edge) => edge.callee);
 
   assert.ok(callees.some((callee) => callee.startsWith("scanner/Scanner.js#")));
+});
+
+// ---------------------------------------------------------------------------
+// 5. HTTP API
+//
+// The app runs on a free local port and is called with Node's built-in fetch.
+// All tests below share ONE app, and the app remembers the last project it
+// analyzed. So the order matters: first the "nothing analyzed yet" checks, then
+// the analyze checks, then the endpoints that read the analyzed project.
+// ---------------------------------------------------------------------------
+
+// Start the app on any free port (port 0 = let the system choose).
+const apiServer = await new Promise((resolve) => {
+  const started = createApp().listen(0, () => resolve(started));
+});
+const apiBase = `http://127.0.0.1:${apiServer.address().port}`;
+
+// Stop the server when the tests finish, or the test run would never end.
+after(() => apiServer.close());
+
+// Call the API and return { status, body } (body is the parsed JSON).
+async function callApi(urlPath, jsonBody) {
+  const options = jsonBody === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(jsonBody),
+  };
+  const response = await fetch(`${apiBase}${urlPath}`, options);
+  return { status: response.status, body: await response.json() };
+}
+
+// Function ids contain "#", which must be written as %23 inside a URL.
+const functionUrl = (functionId) => `/api/function?id=${encodeURIComponent(functionId)}`;
+
+test("api: reading endpoints answer 409 before any project is analyzed", async () => {
+  for (const url of ["/api/functions", functionUrl("b.js#init")]) {
+    const { status, body } = await callApi(url);
+    assert.equal(status, 409, url);
+    assert.equal(body.error, "Analyze a project first");
+  }
+});
+
+test("api: analyze rejects a missing, non-text, missing-folder or file path with 400", async () => {
+  const badPaths = [
+    {},
+    { path: 5 },
+    { path: "" },
+    { path: fixture("does-not-exist") },
+    { path: path.join(fixtureRoot, "b.js") }, // a file, not a folder
+  ];
+
+  for (const badBody of badPaths) {
+    const { status, body } = await callApi("/api/analyze", badBody);
+    assert.equal(status, 400, JSON.stringify(badBody));
+    assert.equal(typeof body.error, "string");
+  }
+});
+
+test("api: analyze a project returns counts", async () => {
+  const { status, body } = await callApi("/api/analyze", { path: fixtureRoot });
+
+  assert.equal(status, 200);
+  assert.equal(body.files, 3);
+  assert.equal(body.functions, 6); // b.js: 3, c.js: 2, main.js: 1
+  assert.deepEqual(body.errors, []);
+});
+
+test("api: functions lists everything, and search finds functions by name", async () => {
+  const all = await callApi("/api/functions");
+  assert.equal(all.status, 200);
+  assert.equal(all.body.total, 6);
+
+  const search = await callApi("/api/functions?search=INIT"); // not case sensitive
+  assert.equal(search.body.total, 2);
+  assert.deepEqual(search.body.items.map((fn) => fn.id).sort(), ["b.js#init", "c.js#init"]);
+
+  const noMatch = await callApi("/api/functions?search=zzz");
+  assert.deepEqual(noMatch.body, { total: 0, items: [] });
+});
+
+test("api: functions items have the file and line range", async () => {
+  const { body } = await callApi("/api/functions?search=Svc.run");
+
+  assert.equal(body.total, 1);
+  assert.deepEqual(body.items[0], {
+    id: "b.js#Svc.run",
+    name: "run",
+    owner: "Svc",
+    kind: "method",
+    line: 13,
+    endLine: 15,
+    file: "b.js",
+  });
+});
+
+test("api: functions can be filtered by file and paged with limit and offset", async () => {
+  const byFile = await callApi("/api/functions?file=c.js");
+  assert.equal(byFile.body.total, 2);
+  assert.ok(byFile.body.items.every((fn) => fn.file === "c.js"));
+
+  // `total` is the count before paging, `items` is only one page.
+  const firstPage = await callApi("/api/functions?file=c.js&limit=1");
+  const secondPage = await callApi("/api/functions?file=c.js&limit=1&offset=1");
+  assert.equal(firstPage.body.total, 2);
+  assert.equal(firstPage.body.items.length, 1);
+  assert.equal(secondPage.body.items.length, 1);
+  assert.notEqual(firstPage.body.items[0].id, secondPage.body.items[0].id);
+});
+
+test("api: bad limit and offset values fall back to the defaults", async () => {
+  const { status, body } = await callApi("/api/functions?limit=abc&offset=-5");
+
+  assert.equal(status, 200);
+  assert.equal(body.items.length, 6);
+});
+
+test("api: function returns the details and the source code", async () => {
+  const init = await callApi(functionUrl("b.js#init"));
+  assert.equal(init.status, 200);
+  assert.equal(init.body.name, "init");
+  assert.equal(init.body.file, "b.js");
+  assert.equal(init.body.source, "export function init() {\n  return helper();\n}");
+
+  // A method: only its own lines are returned, not the whole class.
+  const run = await callApi(functionUrl("b.js#Svc.run"));
+  assert.equal(run.body.owner, "Svc");
+  assert.match(run.body.source, /^ {2}run\(\) \{/);
+  assert.ok(!run.body.source.includes("class Svc"));
+});
+
+test("api: function answers 404 for an unknown id and 400 without an id", async () => {
+  const unknown = await callApi(functionUrl("nope.js#nothing"));
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.body.error, "Function not found");
+
+  const missing = await callApi("/api/function");
+  assert.equal(missing.status, 400);
+  assert.equal(missing.body.error, "id is required");
+});
+
+test("api: analyze reports files that fail to parse, and replaces the old project", async () => {
+  // Last on purpose: this replaces the project the earlier tests read.
+  const { status, body } = await callApi("/api/analyze", { path: fixture("broken") });
+
+  assert.equal(status, 200);
+  assert.equal(body.files, 2);
+  assert.equal(body.errors.length, 1);
+  assert.equal(body.errors[0].file, "bad.js");
+
+  const { body: list } = await callApi("/api/functions");
+  assert.deepEqual(list.items.map((fn) => fn.id), ["ok.js#fine"]);
 });
