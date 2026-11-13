@@ -10,9 +10,9 @@ Point it at a folder and it can tell you:
 It reads the code with a real parser ([Acorn](https://github.com/acornjs/acorn)),
 so it does not run your code and does not guess from text patterns.
 
-> **Status:** the backend engine works and is tested, and a first HTTP API can
-> analyze a project, list its functions and show a function's source. Callers and
-> paths over HTTP, and the web interface, are not built yet. See [What is built](#what-is-built).
+> **Status:** the backend engine works and is tested, and an HTTP API can analyze
+> a project, list its functions, show a function's source, and answer callers,
+> callees and paths. The web interface is not built yet. See [What is built](#what-is-built).
 
 ## Quick start
 
@@ -98,7 +98,7 @@ The full explanation, with a worked example, is in
 - [x] Call linking with `certain` and `guess` confidence
 - [x] Callers, callees and shortest path, safe against recursion and circles
 - [x] HTTP API: analyze a project, list functions, get a function with its source
-- [ ] API endpoints for callers, callees and paths
+- [x] API endpoints for callers, callees and paths
 - [ ] Web interface (function list, detail panel, graph view)
 - [ ] Linking `new SomeClass()` to the class
 - [ ] Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`)

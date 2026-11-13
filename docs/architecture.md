@@ -21,7 +21,7 @@ runs them in order. A fifth class, `Graph`, then answers questions about the res
 | **Utilities** | `backend/utils/Utilities.js` | Small tree helpers (`isNode`, `childNodes`) | AST nodes | Booleans or node lists |
 | **Linker** | `backend/linker/Linker.js` | Connects files: imports, exports and calls | All per-file results | Resolved paths, ids and call edges |
 | **IndexMaps** | `backend/indexes/IndexMaps.js` | Stores the Linker's lookup tables | Exports and functions per file | Fast lookups |
-| **API** | `backend/api/createApp.js` | Exposes analyze, list functions and get a function over HTTP (see [api.md](api.md)) | HTTP requests | JSON |
+| **API** | `backend/api/createApp.js` | Exposes analyze, list functions, get a function, callers, callees and paths over HTTP (see [api.md](api.md)) | HTTP requests | JSON |
 | **Graph** | `backend/graph/Graph.js` | Answers callers, callees and path questions | Call edges from `linkCalls` | Edges with a `depth`, or a chain of ids |
 
 ## Who uses whom
@@ -96,7 +96,6 @@ other files, so one broken file never stops the run.
 
 ## Not built yet
 
-- API endpoints for callers, callees and paths (the `Graph` class can already answer them).
 - The frontend described in `docs/initialSetup.md`.
 - Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`).
 - Linking classes: `new Scanner()` is not connected to the `Scanner` class, because only functions are indexed.

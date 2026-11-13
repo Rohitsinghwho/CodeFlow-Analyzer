@@ -613,6 +613,78 @@ test("api: function answers 404 for an unknown id and 400 without an id", async 
   assert.equal(missing.body.error, "id is required");
 });
 
+test("api: callees lists what a function calls, with the depth of each call", async () => {
+  const { status, body } = await callApi(`/api/callees?id=${encodeURIComponent("main.js#main")}`);
+
+  assert.equal(status, 200);
+  assert.equal(body.id, "main.js#main");
+  assert.equal(body.depth, 1);
+  assert.deepEqual(body.items.map((edge) => edge.callee).sort(), ["c.js#helper", "c.js#init"]);
+  for (const edge of body.items) {
+    assert.equal(edge.confidence, "certain");
+    assert.equal(edge.file, "main.js");
+    assert.equal(edge.depth, 1);
+  }
+});
+
+test("api: callers lists who calls a function", async () => {
+  const { status, body } = await callApi(`/api/callers?id=${encodeURIComponent("c.js#init")}`);
+
+  assert.equal(status, 200);
+  assert.deepEqual(body.items.map((edge) => edge.caller), ["main.js#main"]);
+});
+
+test("api: depth is capped, and a bad depth falls back to 1", async () => {
+  const big = await callApi(`/api/callees?id=${encodeURIComponent("main.js#main")}&depth=99`);
+  assert.equal(big.body.depth, 5);
+
+  const bad = await callApi(`/api/callees?id=${encodeURIComponent("main.js#main")}&depth=abc`);
+  assert.equal(bad.body.depth, 1);
+});
+
+test("api: path returns the shortest chain, or null when there is none", async () => {
+  const from = encodeURIComponent("b.js#init");
+  const to = encodeURIComponent("b.js#helper");
+  const found = await callApi(`/api/path?from=${from}&to=${to}`);
+  assert.equal(found.status, 200);
+  assert.deepEqual(found.body.path, ["b.js#init", "b.js#helper"]);
+
+  // c.js#init calls nothing, so it cannot reach main.
+  const none = await callApi(`/api/path?from=${encodeURIComponent("c.js#init")}&to=${encodeURIComponent("main.js#main")}`);
+  assert.equal(none.status, 200);
+  assert.equal(none.body.path, null);
+});
+
+test("api: callees, callers and path check their input", async () => {
+  const known = encodeURIComponent("b.js#init");
+
+  for (const url of ["/api/callees", "/api/callers"]) {
+    assert.equal((await callApi(url)).status, 400, `${url} without id`);
+    assert.equal((await callApi(`${url}?id=nope`)).status, 404, `${url} unknown id`);
+  }
+
+  assert.equal((await callApi(`/api/path?from=${known}`)).status, 400);
+  assert.equal((await callApi(`/api/path?from=${known}&to=nope`)).status, 404);
+  assert.equal((await callApi(`/api/path?from=nope&to=${known}`)).status, 404);
+});
+
+test("api: callees, callers and path answer 409 before a project is analyzed", async () => {
+  // A separate app that has not analyzed anything.
+  const freshServer = await new Promise((resolve) => {
+    const started = createApp().listen(0, () => resolve(started));
+  });
+  const freshBase = `http://127.0.0.1:${freshServer.address().port}`;
+
+  try {
+    for (const url of ["/api/callees?id=x", "/api/callers?id=x", "/api/path?from=x&to=y"]) {
+      const response = await fetch(`${freshBase}${url}`);
+      assert.equal(response.status, 409, url);
+    }
+  } finally {
+    freshServer.close();
+  }
+});
+
 test("api: analyze reports files that fail to parse, and replaces the old project", async () => {
   // Last on purpose: this replaces the project the earlier tests read.
   const { status, body } = await callApi("/api/analyze", { path: fixture("broken") });

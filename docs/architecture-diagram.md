@@ -58,5 +58,5 @@ flowchart LR
 
 - Data does not pass straight from step to step. `CodeFlow` calls each step and hands the result to the next, so the arrows show the order and the data, not direct calls.
 - `Graph` is created on request with `CodeFlow.buildGraph(fileResults)`, after `analyze()` has run. It is not part of `analyze()`.
-- The API keeps the last analyzed project in memory, so one server handles one project at a time. It currently serves analyze, list functions and get a function; callers, callees and paths are not exposed yet.
+- The API keeps the last analyzed project in memory, so one server handles one project at a time. It serves analyze, list functions, get a function, and the callers, callees and path questions answered by `Graph`.
 - The web interface is planned but has no code yet, so it is not drawn.

@@ -11,6 +11,28 @@ function createApp() {
   let project = null;
   const app = express();
   app.use(express.json());
+
+  // ---- Small helpers used by the callees, callers and path routes ----
+
+  // Find a function by its id. Returns { ...function, file } or null.
+  const findFunction = (id) => {
+    for (const fileResult of project.fileResults) {
+      const fn = fileResult.functions.find((candidate) => candidate.id === id);
+      if (fn) {
+        return { ...fn, file: fileResult.file };
+      }
+    }
+    return null;
+  };
+
+  // Read a number from a query value (they arrive as text).
+  // Missing or invalid values give `fallback`; the result is kept between min and max.
+  const readNumber = (value, fallback, min, max) =>
+    Math.min(Math.max(Number(value) || fallback, min), max);
+
+  // Is `value` a non-empty piece of text?
+  const isText = (value) => typeof value === "string" && value !== "";
+
   app.post("/api/analyze", async (req, res) => {
     const folder = req.body?.path;
     if (typeof folder !== "string" || folder.trim() === "") {
@@ -107,6 +129,60 @@ function createApp() {
     // 4. Send the function with its source code.
     res.json({ ...found, source });
   });
+
+  // What does this function call? (directly, and further down up to `depth` levels)
+  app.get("/api/callees", (req, res) => {
+    const id = req.query.id;
+    if (!isText(id)) {
+      return res.status(400).json({ error: "id is required" });
+    }
+    if (!project) {
+      return res.status(409).json({ error: "Analyze a project first" });
+    }
+    if (!findFunction(id)) {
+      return res.status(404).json({ error: "Function not found" });
+    }
+
+    const depth = readNumber(req.query.depth, 1, 1, 5);
+    res.json({ id, depth, items: project.graph.getCallees(id, depth) });
+  });
+
+  // Who calls this function? (directly, and further up to `depth` levels)
+  app.get("/api/callers", (req, res) => {
+    const id = req.query.id;
+    if (!isText(id)) {
+      return res.status(400).json({ error: "id is required" });
+    }
+    if (!project) {
+      return res.status(409).json({ error: "Analyze a project first" });
+    }
+    if (!findFunction(id)) {
+      return res.status(404).json({ error: "Function not found" });
+    }
+
+    const depth = readNumber(req.query.depth, 1, 1, 5);
+    res.json({ id, depth, items: project.graph.getCallers(id, depth) });
+  });
+
+  // What is the shortest chain of calls from one function to another?
+  app.get("/api/path", (req, res) => {
+    const { from, to } = req.query;
+    if (!isText(from) || !isText(to)) {
+      return res.status(400).json({ error: "from and to are required" });
+    }
+    if (!project) {
+      return res.status(409).json({ error: "Analyze a project first" });
+    }
+    if (!findFunction(from) || !findFunction(to)) {
+      return res.status(404).json({ error: "Function not found" });
+    }
+
+    const maxDepth = readNumber(req.query.maxDepth, 10, 1, 20);
+    res.json({ from, to, path: project.graph.findPath(from, to, maxDepth) });
+  });
+
+
+
   app.use((err, req, res, next) => {
     console.error(err); // show the real error in the terminal
     res.status(500).json({ error: "Something went wrong" });

@@ -118,8 +118,60 @@ curl "localhost:3000/api/function?id=b.js%23init"
 
 `400` when `id` is missing, `404` when no function has that id, `409` when no project is analyzed.
 
+## `GET /api/callees` and `GET /api/callers`
+
+What does a function call, and who calls it. They use the [Graph](graph.md) built when the project was analyzed.
+
+| Query | Default | Meaning |
+| --- | --- | --- |
+| `id` | required | The function id, for example `main.js#main` (write `#` as `%23`). |
+| `depth` | `1` | How many levels to follow, from 1 to 5. `1` is direct calls only. A missing or invalid value becomes `1`. |
+
+```bash
+curl "localhost:3000/api/callees?id=main.js%23main"
+```
+
+```json
+{
+  "id": "main.js#main",
+  "depth": 1,
+  "items": [
+    { "caller": "main.js#main", "callee": "c.js#init", "line": 4, "kind": "call", "confidence": "certain", "file": "main.js", "depth": 1 },
+    { "caller": "main.js#main", "callee": "c.js#helper", "line": 5, "kind": "call", "confidence": "certain", "file": "main.js", "depth": 1 }
+  ]
+}
+```
+
+- Each item is one call: who made it (`caller`), what it reached (`callee`), the `line` and `file` where it is written, and its `depth` (1 is direct, 2 is one step further).
+- `confidence` is `"certain"` when the link is sure, and `"guess"` when only a name matched (for example a call like `obj.save()` on an object of unknown type). Filter on it if you want only sure links.
+- `kind` is `call` (`foo()`), `new` (`new Foo()`) or `ref` (a function passed by name).
+- A function that calls nothing (or that nobody calls) gives `"items": []`.
+
+`400` when `id` is missing, `404` when no function has that id, `409` when no project is analyzed.
+
+## `GET /api/path`
+
+The shortest chain of calls from one function to another.
+
+| Query | Default | Meaning |
+| --- | --- | --- |
+| `from` | required | Id of the function to start from. |
+| `to` | required | Id of the function to reach. |
+| `maxDepth` | `10` | Give up after this many calls in a row, from 1 to 20. |
+
+```bash
+curl "localhost:3000/api/path?from=b.js%23init&to=b.js%23helper"
+```
+
+```json
+{ "from": "b.js#init", "to": "b.js#helper", "path": ["b.js#init", "b.js#helper"] }
+```
+
+`path` lists every function on the way, including both ends. It is `null` when there is no chain within `maxDepth`, and `[from]` when `from` and `to` are the same function. A `null` does not prove the two are unrelated, because calls that happen while the program runs cannot be seen.
+
+`400` when `from` or `to` is missing, `404` when either id does not exist, `409` when no project is analyzed.
+
 ## Not built yet
 
-- Callers, callees and paths (`/api/callers`, `/api/callees`, `/api/path`). The `Graph` class already answers them. The endpoints are next.
 - Allowing a web page on another address to call the API (CORS).
 - A limit on which folders can be analyzed. Right now any folder on the server's machine can be read, so **run the server only on your own computer** until this is added.
