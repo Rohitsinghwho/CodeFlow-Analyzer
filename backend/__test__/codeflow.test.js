@@ -485,8 +485,9 @@ test("`new Scanner()` in CodeFlow is linked to the Scanner class", {
 // ---------------------------------------------------------------------------
 
 // Start the app on any free port (port 0 = let the system choose).
+// (allowedRoots: [] means "no folder limit", so the tests do not depend on a local .env file.)
 const apiServer = await new Promise((resolve) => {
-  const started = createApp().listen(0, () => resolve(started));
+  const started = createApp({ allowedRoots: [] }).listen(0, () => resolve(started));
 });
 const apiBase = `http://127.0.0.1:${apiServer.address().port}`;
 
@@ -682,6 +683,87 @@ test("api: callees, callers and path answer 409 before a project is analyzed", a
     }
   } finally {
     freshServer.close();
+  }
+});
+
+// Start a separate app with its own settings. Returns { base, close }.
+async function startApi(options) {
+  const server = await new Promise((resolve) => {
+    const started = createApp(options).listen(0, () => resolve(started));
+  });
+  return { base: `http://127.0.0.1:${server.address().port}`, close: () => server.close() };
+}
+
+// POST /api/analyze on an app made by startApi, and return the status code.
+async function analyzeStatus(base, folder) {
+  const response = await fetch(`${base}/api/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: folder }),
+  });
+  return response.status;
+}
+
+test("api: only the allowed web page origins may call the API from a browser", async () => {
+  const api = await startApi({ allowedRoots: [], corsOrigins: ["http://localhost:5173"] });
+
+  try {
+    // An allowed origin gets the CORS headers.
+    const allowed = await fetch(`${api.base}/api/functions`, {
+      headers: { Origin: "http://localhost:5173" },
+    });
+    assert.equal(allowed.headers.get("access-control-allow-origin"), "http://localhost:5173");
+
+    // Any other origin gets none, so the browser blocks the answer.
+    const stranger = await fetch(`${api.base}/api/functions`, {
+      headers: { Origin: "http://evil.example" },
+    });
+    assert.equal(stranger.headers.get("access-control-allow-origin"), null);
+
+    // The browser's "preflight" question before a JSON POST is answered with 204.
+    const preflight = await fetch(`${api.base}/api/analyze`, {
+      method: "OPTIONS",
+      headers: { Origin: "http://localhost:5173", "Access-Control-Request-Method": "POST" },
+    });
+    assert.equal(preflight.status, 204);
+    assert.match(preflight.headers.get("access-control-allow-methods"), /POST/);
+    assert.match(preflight.headers.get("access-control-allow-headers"), /Content-Type/);
+  } finally {
+    api.close();
+  }
+});
+
+test("api: analyze only reads folders inside the allowed roots", async () => {
+  const api = await startApi({ allowedRoots: [fixture("project")] });
+
+  try {
+    // The root itself is fine.
+    assert.equal(await analyzeStatus(api.base, fixture("project")), 200);
+
+    // A sibling folder is not allowed.
+    assert.equal(await analyzeStatus(api.base, fixture("calls")), 403);
+
+    // Using ".." to climb out of the root is caught too.
+    const sneaky = path.join(fixture("project"), "..", "calls");
+    assert.equal(await analyzeStatus(api.base, sneaky), 403);
+
+    // A folder far away is not allowed either.
+    assert.equal(await analyzeStatus(api.base, backendRoot), 403);
+  } finally {
+    api.close();
+  }
+});
+
+test("api: folders below an allowed root are allowed", async () => {
+  // fixtures/ holds project, calls, broken... so each one is below this root.
+  const api = await startApi({ allowedRoots: [path.join(testFolder, "fixtures")] });
+
+  try {
+    assert.equal(await analyzeStatus(api.base, fixture("calls")), 200);
+    assert.equal(await analyzeStatus(api.base, fixture("project")), 200);
+    assert.equal(await analyzeStatus(api.base, testFolder), 403); // the parent is not
+  } finally {
+    api.close();
   }
 });
 

@@ -64,7 +64,7 @@ curl -X POST localhost:3000/api/analyze -H "Content-Type: application/json"   -d
 curl "localhost:3000/api/functions?search=init"
 ```
 
-See [docs/api.md](docs/api.md) for every endpoint.
+See [docs/api.md](docs/api.md) for every endpoint and the settings (`PORT`, `ALLOWED_ROOTS`, `CORS_ORIGIN`).
 
 ## How it works
 
@@ -99,6 +99,7 @@ The full explanation, with a worked example, is in
 - [x] Callers, callees and shortest path, safe against recursion and circles
 - [x] HTTP API: analyze a project, list functions, get a function with its source
 - [x] API endpoints for callers, callees and paths
+- [x] CORS for the frontend, and an allow-list of folders the API may read
 - [ ] Web interface (function list, detail panel, graph view)
 - [ ] Linking `new SomeClass()` to the class
 - [ ] Re-exports (`export { x } from "./y"`) and namespace calls (`ns.fn()`)

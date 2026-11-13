@@ -14,6 +14,32 @@ PORT=4000 npm start          # use another port (on Windows PowerShell: $env:POR
 
 `createApp()` builds the app without starting a server, so tests can run it on any free port.
 
+## Settings
+
+Settings come from environment variables, or from a `backend/.env` file (copy [`backend/.env.example`](../backend/.env.example), which git ignores once renamed to `.env`).
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `PORT` | `3000` | Port the server listens on. |
+| `ALLOWED_ROOTS` | empty | Folders that may be analyzed, separated by `;` on Windows and `:` on Linux and macOS. Empty means **any folder is allowed**. |
+| `CORS_ORIGIN` | `http://localhost:5173` | Web page addresses allowed to call the API from a browser, separated by `,`. |
+
+`createApp({ allowedRoots, corsOrigins })` takes the same two values as options, and the options win over the environment.
+
+### Folder allow-list
+
+Set `ALLOWED_ROOTS` whenever the server can be reached by anyone other than you. `POST /api/analyze` then accepts a folder only if it **is** one of the roots or is **below** one. Anything else gets `403 {"error":"Folder is not allowed"}`.
+
+The check compares real paths, so `..` tricks (`<root>/../other`) and shortcuts or symbolic links that point outside a root are refused too.
+
+```bash
+ALLOWED_ROOTS="D:/projects;D:/samples" npm start
+```
+
+### CORS
+
+A web page served from one address (for example the frontend at `http://localhost:5173`) is blocked by the browser from calling an API on another address, unless the API says it is allowed. The API answers with `Access-Control-Allow-Origin` only for the addresses in `CORS_ORIGIN`, and replies `204` to the browser's `OPTIONS` check before a JSON `POST`. Other addresses get no CORS headers, so their browsers block the answer. This protects browsers; it does not stop tools like `curl`, so it is not a replacement for the folder allow-list.
+
 ## How it works
 
 The server remembers **one project at a time, in memory**: the last folder you
@@ -30,6 +56,7 @@ All answers are JSON. Errors always look like this:
 | --- | --- |
 | `200` | Success |
 | `400` | Bad input (missing or wrong value) |
+| `403` | The folder is outside `ALLOWED_ROOTS` |
 | `404` | The function id does not exist |
 | `409` | No project analyzed yet. Call `POST /api/analyze` first |
 | `500` | Something unexpected went wrong (the details are printed in the server's terminal) |
@@ -173,5 +200,4 @@ curl "localhost:3000/api/path?from=b.js%23init&to=b.js%23helper"
 
 ## Not built yet
 
-- Allowing a web page on another address to call the API (CORS).
-- A limit on which folders can be analyzed. Right now any folder on the server's machine can be read, so **run the server only on your own computer** until this is added.
+- Login or an API key. The API has no users, so anyone who can reach the port can use it. Keep it on your own computer, or behind something that adds a login, and set `ALLOWED_ROOTS`.
