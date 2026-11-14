@@ -394,6 +394,30 @@ function createApp(options = {}) {
     res.json({ from, to, path: project.graph.findPath(from, to, maxDepth) });
   });
 
+  // Walk the call graph from a function outward (BFS) and return the steps
+  // in the order they would be visited. The frontend animates these as the
+  // "electricity flow". When `to` is given, only the shortest-path steps are returned.
+  app.get("/api/trace", (req, res) => {
+    const from = req.query.from;
+    if (!isText(from)) {
+      return res.status(400).json({ error: "from is required" });
+    }
+    const project = projectFor(req, res);
+    if (!project) return;
+    if (!findFunction(project, from)) {
+      return res.status(404).json({ error: "Start function not found" });
+    }
+
+    const to = req.query.to;
+    if (to && !findFunction(project, to)) {
+      return res.status(404).json({ error: "Target function not found" });
+    }
+
+    const maxDepth = readNumber(req.query.maxDepth, 10, 1, 20);
+    const steps = project.graph.getTrace(from, to || undefined, maxDepth);
+    res.json({ from, to: to || null, steps });
+  });
+
   // Anything that goes wrong in a route ends up here.
   app.use((err, req, res, next) => {
     // Errors with a status (too many files, repository too large...) are safe to show.
