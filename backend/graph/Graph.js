@@ -152,6 +152,72 @@ class Graph {
 
     return null; // nothing found within maxDepth
   }
+
+  /**
+   * Walks outward from a start function (BFS) and returns every step in the
+   * order it would be visited. Each step includes the edge that was followed,
+   * the depth it was found at, and its order number.
+   *
+   * When `toId` is given the walk stops as soon as that function is reached,
+   * and only the steps on the shortest path are returned (like findPath, but
+   * with edge detail). Without `toId` the whole reachable graph is returned.
+   *
+   * @param {string}  fromId   Function to start from.
+   * @param {string}  [toId]   Optional target function.
+   * @param {number}  [maxDepth=10] How many levels to follow.
+   * @returns {Array<{node: string, from: string|null, edge: object|null, depth: number, order: number}>}
+   */
+  getTrace(fromId, toId, maxDepth = 10) {
+    const steps = [{ node: fromId, from: null, edge: null, depth: 0, order: 0 }];
+    const cameFrom = new Map(); // node -> { parent, edge }
+    cameFrom.set(fromId, null);
+    let current = [fromId];
+    let order = 1;
+
+    for (let level = 1; level <= maxDepth; level++) {
+      const next = [];
+
+      for (const caller of current) {
+        for (const edge of this.#outgoing.get(caller) ?? []) {
+          if (cameFrom.has(edge.callee)) continue;
+
+          cameFrom.set(edge.callee, { parent: caller, edge });
+          steps.push({
+            node: edge.callee,
+            from: caller,
+            edge: { ...edge, depth: level },
+            depth: level,
+            order: order++,
+          });
+          next.push(edge.callee);
+
+          // If we reached the target, reconstruct just the path steps.
+          if (toId && edge.callee === toId) {
+            const pathSteps = [];
+            let current = toId;
+            while (current !== null) {
+              const info = cameFrom.get(current);
+              pathSteps.push({
+                node: current,
+                from: info ? info.parent : null,
+                edge: info ? { ...info.edge, depth: 0 } : null,
+                depth: 0,
+                order: 0,
+              });
+              current = info ? info.parent : null;
+            }
+            pathSteps.reverse();
+            return pathSteps.map((step, i) => ({ ...step, depth: i, order: i }));
+          }
+        }
+      }
+
+      current = next;
+      if (next.length === 0) break;
+    }
+
+    return steps;
+  }
 }
 
 export default Graph;

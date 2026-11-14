@@ -11,13 +11,15 @@ import Panel from "./components/ui/Panel.jsx";
 import { getConfig } from "./api.js";
 import { useTheme } from "./hooks/useTheme.js";
 
-// The graph library is big, so it is only downloaded the first time you open the graph tab.
+// Heavy views are lazy-loaded — only downloaded the first time you open that tab.
 const GraphView = lazy(() => import("./components/GraphView.jsx"));
+const TraceView = lazy(() => import("./components/TraceView.jsx"));
 
 const TABS = [
   { id: "details", label: "details" },
   { id: "graph", label: "graph" },
   { id: "path", label: "path" },
+  { id: "trace", label: "⚡ trace" },
 ];
 
 // The whole app. It holds the three things every part needs to share:
@@ -87,10 +89,12 @@ export default function App() {
     </>
   );
 
-  // Details and graph need a function. The path view works without one.
+  // Details and graph need a function. Path and trace work without one.
   let content;
   if (tab === "path") {
     content = <PathView selectedId={selectedId} onSelect={selectFunction} projectKey={projectKey} />;
+  } else if (tab === "trace") {
+    content = null; // drawn below, fills the whole panel like graph
   } else if (!selectedId) {
     content = <p className="empty">pick a function from the list to see its {tab}</p>;
   } else if (tab === "graph") {
@@ -100,6 +104,7 @@ export default function App() {
   }
 
   const showGraph = tab === "graph" && selectedId;
+  const showTrace = tab === "trace";
 
   return (
     <div className="window">
@@ -118,10 +123,14 @@ export default function App() {
 
         <main className="main" ref={mainRef}>
           {project ? (
-            <Panel title={selectedId ?? "no function selected"} actions={tabs} grow flush={showGraph}>
+            <Panel title={selectedId ?? "no function selected"} actions={tabs} grow flush={showGraph || showTrace}>
               {showGraph ? (
                 <Suspense fallback={<div className="empty"><span className="spinner" aria-label="loading" /></div>}>
                   <GraphView id={selectedId} onSelect={selectFunction} theme={theme} />
+                </Suspense>
+              ) : showTrace ? (
+                <Suspense fallback={<div className="empty"><span className="spinner" aria-label="loading" /></div>}>
+                  <TraceView selectedId={selectedId} onSelect={selectFunction} theme={theme} projectKey={projectKey} />
                 </Suspense>
               ) : (
                 content

@@ -85,3 +85,8 @@ export function getCallers(id, depth = 1) {
 export function findPath(from, to, maxDepth = 10) {
   return request(`/api/path?${query({ from, to, maxDepth })}`);
 }
+
+/** BFS trace from a function: { from, to, steps }. Each step has node, from, edge, depth, order. */
+export function getTrace(from, to, maxDepth = 10) {
+  return request(`/api/trace?${query({ from, to, maxDepth })}`);
+}
