@@ -147,7 +147,7 @@ class Linker {
   /**
    * Decide how to look up a call, based on how it was written:
    *   this.name()  -> a method of the same class/object
-   *   obj.name()   -> any method called `name` (we cannot know what `obj` is)
+   *   obj.name()   -> any method called `name`, filtered by objectName/rootObject
    *   name()       -> a function in this file, or one that was imported
    * Returns a list of { id, confidence }; empty when nothing matches.
    */
@@ -155,11 +155,48 @@ class Linker {
     if (call.viaThis) {
       return this.#findSameOwnerMethod(call, fileResult);
     }
+    // FIX-6: If calleeName is null (computed property), skip — we can't match.
+    if (call.calleeName === null) {
+      return [];
+    }
     if (call.objectName !== null) {
-      return (methodsByName.get(call.calleeName) ?? [])
-        .map((method) => ({ id: method.id, confidence: "guess" }));
+      return this.#findMethodByObject(call, methodsByName);
     }
     return this.#findPlainFunction(call, fileResult, fileSet);
+  }
+
+  /**
+   * FIX-1: `obj.name()` — try to match by owner first, then fall back to
+   * returning all methods with that name as guesses.
+   *
+   * When call.objectName or call.rootObject matches a method's owner, we
+   * return it as 'certain'. Otherwise all methods with that calleeName are
+   * returned as 'guess'.
+   */
+  #findMethodByObject(call, methodsByName) {
+    const allCandidates = methodsByName.get(call.calleeName) ?? [];
+    if (allCandidates.length === 0) return [];
+
+    // Try matching by objectName first (e.g. "store" matches owner "store").
+    const byObject = allCandidates.filter(
+      (m) => m.owner === call.objectName
+    );
+    if (byObject.length > 0) {
+      return byObject.map((m) => ({ id: m.id, confidence: "certain" }));
+    }
+
+    // Try matching by rootObject (e.g. for a.b.save(), rootObject "a" matches owner "a").
+    if (call.rootObject && call.rootObject !== call.objectName) {
+      const byRoot = allCandidates.filter(
+        (m) => m.owner === call.rootObject
+      );
+      if (byRoot.length > 0) {
+        return byRoot.map((m) => ({ id: m.id, confidence: "certain" }));
+      }
+    }
+
+    // Fall back: return all as guess.
+    return allCandidates.map((m) => ({ id: m.id, confidence: "guess" }));
   }
 
   /** `name()`: a top-level function of this file, otherwise an imported one. */

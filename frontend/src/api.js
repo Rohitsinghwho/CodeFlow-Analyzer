@@ -87,6 +87,6 @@ export function findPath(from, to, maxDepth = 10) {
 }
 
 /** BFS trace from a function: { from, to, steps }. Each step has node, from, edge, depth, order. */
-export function getTrace(from, to, maxDepth = 10) {
-  return request(`/api/trace?${query({ from, to, maxDepth })}`);
+export function getTrace(from, to, maxDepth = 10, mode = "shortest") {
+  return request(`/api/trace?${query({ from, to, maxDepth, mode })}`);
 }
