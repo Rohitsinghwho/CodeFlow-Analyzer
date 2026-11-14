@@ -180,7 +180,7 @@ const SPEEDS = [
 
 // ---- Component ----
 
-export default function TraceView({ selectedId, onSelect, theme, projectKey }) {
+export default function TraceView({ selectedId, onSelect, theme, projectKey, externalFrom, externalTo }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
   const onSelectRef = useRef(onSelect);
@@ -208,6 +208,10 @@ export default function TraceView({ selectedId, onSelect, theme, projectKey }) {
   useEffect(() => {
     if (selectedId) setFromInput(selectedId);
   }, [selectedId]);
+
+  // Sync when the graph context menu sets a value.
+  useEffect(() => { if (externalFrom) setFromInput(externalFrom); }, [externalFrom]);
+  useEffect(() => { if (externalTo) setToInput(externalTo); }, [externalTo]);
 
   // ---- Create / destroy Cytoscape ----
   useEffect(() => {

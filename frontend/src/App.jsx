@@ -36,6 +36,12 @@ export default function App() {
   // Changes on every analysis, so lists reload even if the folder is the same.
   const [projectKey, setProjectKey] = useState(0);
 
+  // Shared state: right-click in the graph can set start/end for path and trace views.
+  const [pathFrom, setPathFrom] = useState("");
+  const [pathTo, setPathTo] = useState("");
+  const [traceFrom, setTraceFrom] = useState("");
+  const [traceTo, setTraceTo] = useState("");
+
   // Ask the server once what it allows (a public server turns folders off).
   useEffect(() => {
     getConfig()
@@ -92,7 +98,7 @@ export default function App() {
   // Details and graph need a function. Path and trace work without one.
   let content;
   if (tab === "path") {
-    content = <PathView selectedId={selectedId} onSelect={selectFunction} projectKey={projectKey} />;
+    content = <PathView selectedId={selectedId} onSelect={selectFunction} projectKey={projectKey} externalFrom={pathFrom} externalTo={pathTo} />;
   } else if (tab === "trace") {
     content = null; // drawn below, fills the whole panel like graph
   } else if (!selectedId) {
@@ -126,11 +132,19 @@ export default function App() {
             <Panel title={selectedId ?? "no function selected"} actions={tabs} grow flush={showGraph || showTrace}>
               {showGraph ? (
                 <Suspense fallback={<div className="empty"><span className="spinner" aria-label="loading" /></div>}>
-                  <GraphView id={selectedId} onSelect={selectFunction} theme={theme} />
+                  <GraphView
+                    id={selectedId}
+                    onSelect={selectFunction}
+                    theme={theme}
+                    onSetPathFrom={(id) => { setPathFrom(id); setTab("path"); }}
+                    onSetPathTo={(id) => { setPathTo(id); setTab("path"); }}
+                    onSetTraceFrom={(id) => { setTraceFrom(id); setTab("trace"); }}
+                    onSetTraceTo={(id) => { setTraceTo(id); setTab("trace"); }}
+                  />
                 </Suspense>
               ) : showTrace ? (
                 <Suspense fallback={<div className="empty"><span className="spinner" aria-label="loading" /></div>}>
-                  <TraceView selectedId={selectedId} onSelect={selectFunction} theme={theme} projectKey={projectKey} />
+                  <TraceView selectedId={selectedId} onSelect={selectFunction} theme={theme} projectKey={projectKey} externalFrom={traceFrom} externalTo={traceTo} />
                 </Suspense>
               ) : (
                 content
