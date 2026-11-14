@@ -696,6 +696,55 @@ details.parse-errors li {
   pointer-events: none;
 }
 
+/* Context menu for right-clicking graph nodes */
+.graph-ctx-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 180px;
+  background: var(--base-surface);
+  border: 1px solid var(--base-border);
+  border-radius: 8px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 0.8125rem;
+  animation: ctx-fade-in 0.12s ease-out;
+}
+@keyframes ctx-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.graph-ctx-header {
+  padding: 6px 12px 4px;
+  font-weight: 600;
+  color: var(--code-green);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+.graph-ctx-menu hr {
+  border: none;
+  border-top: 1px solid var(--base-border);
+  margin: 4px 0;
+}
+.graph-ctx-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--base-content);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.graph-ctx-menu button:hover {
+  background: var(--base-surface-2);
+  color: var(--code-green-bright);
+}
+
 .legend {
   display: flex;
   flex-wrap: wrap;

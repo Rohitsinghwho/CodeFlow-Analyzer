@@ -105,7 +105,7 @@ function buildStyle() {
 }
 
 // Graph of one function: callers on the left, callees on the right.
-export default function GraphView({ id, onSelect, theme }) {
+export default function GraphView({ id, onSelect, theme, onSetPathFrom, onSetPathTo, onSetTraceFrom, onSetTraceTo }) {
   const containerRef = useRef(null);
   const cyRef = useRef(null);
   const onSelectRef = useRef(onSelect);
@@ -116,6 +116,9 @@ export default function GraphView({ id, onSelect, theme }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Context menu state.
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, nodeId }
 
   // Create the Cytoscape graph once, and remove it when this view goes away.
   useEffect(() => {
@@ -134,6 +137,19 @@ export default function GraphView({ id, onSelect, theme }) {
       const clickedId = event.target.id();
       if (!isTopLevel(clickedId)) onSelectRef.current(clickedId);
     });
+
+    // Right-click a node to open context menu (only if it has ≥ 2 edges).
+    cy.on("cxttap", "node", (event) => {
+      const node = event.target;
+      const edgeCount = node.connectedEdges().length;
+      if (edgeCount < 2) return;
+      const pos = event.renderedPosition || event.position;
+      const rect = containerRef.current.getBoundingClientRect();
+      setCtxMenu({ x: rect.left + pos.x, y: rect.top + pos.y, nodeId: node.id() });
+    });
+
+    // Close context menu when clicking on the canvas background.
+    cy.on("tap", () => setCtxMenu(null));
 
     // Keep the picture fitted when the panel changes size.
     const observer = new ResizeObserver(() => {
@@ -191,6 +207,24 @@ export default function GraphView({ id, onSelect, theme }) {
     cy.layout({ name: "dagre", rankDir: "LR", nodeSep: 24, rankSep: 80, animate: false }).run();
     cy.fit(undefined, 30);
   }, [elements]);
+
+  // Close context menu when clicking outside.
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("contextmenu", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close);
+    };
+  }, [ctxMenu]);
+
+  const ctxAction = (handler) => (event) => {
+    event.stopPropagation();
+    handler(ctxMenu.nodeId);
+    setCtxMenu(null);
+  };
 
   // Zoom buttons. They zoom around the middle of the canvas, like the mouse wheel does around the pointer.
   const zoomBy = (factor) => {
@@ -257,8 +291,24 @@ export default function GraphView({ id, onSelect, theme }) {
             </svg>
           </button>
         </div>
-        <span className="zoom-hint">scroll to zoom · drag to move</span>
+        <span className="zoom-hint">scroll to zoom · drag to move · right-click node for options</span>
       </div>
+
+      {/* Context menu */}
+      {ctxMenu && (
+        <div
+          className="graph-ctx-menu"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="graph-ctx-header">{nameOf(ctxMenu.nodeId)}</div>
+          <button type="button" onClick={ctxAction(onSetPathFrom)}>📍 Set as path start</button>
+          <button type="button" onClick={ctxAction(onSetPathTo)}>🏁 Set as path end</button>
+          <hr />
+          <button type="button" onClick={ctxAction(onSetTraceFrom)}>⚡ Set as trace start</button>
+          <button type="button" onClick={ctxAction(onSetTraceTo)}>🎯 Set as trace end</button>
+        </div>
+      )}
 
       {files.length > 0 && (
         <div className="legend">

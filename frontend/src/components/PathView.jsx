@@ -1,13 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { findPath } from "../api.js";
 import { fileOf, nameOf } from "../functionId.js";
 import FunctionPicker from "./ui/FunctionPicker.jsx";
 
 // Pick two functions and see the shortest chain of calls between them.
-export default function PathView({ selectedId, onSelect, projectKey }) {
+export default function PathView({ selectedId, onSelect, projectKey, externalFrom, externalTo }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+
+  // Sync when the graph context menu sets a value.
+  useEffect(() => { if (externalFrom) setFrom(externalFrom); }, [externalFrom]);
+  useEffect(() => { if (externalTo) setTo(externalTo); }, [externalTo]);
   const [result, setResult] = useState(null); // { from, to, path } from the API
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
