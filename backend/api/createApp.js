@@ -414,8 +414,9 @@ function createApp(options = {}) {
     }
 
     const maxDepth = readNumber(req.query.maxDepth, 10, 1, 20);
-    const steps = project.graph.getTrace(from, to || undefined, maxDepth);
-    res.json({ from, to: to || null, steps });
+    const mode = req.query.mode === "full" ? "full" : "shortest";
+    const steps = project.graph.getTrace(from, to || undefined, maxDepth, mode);
+    res.json({ from, to: to || null, mode, steps });
   });
 
   // Anything that goes wrong in a route ends up here.

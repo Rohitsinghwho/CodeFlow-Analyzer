@@ -165,7 +165,17 @@ function buildStyle() {
     },
     {
       selector: "edge[confidence = 'guess']",
-      style: { "line-style": "dashed" },
+      style: { "line-style": "dashed", "line-color": "#cc8833", "target-arrow-color": "#cc8833" },
+    },
+    // Guess edge being traversed — orange glow instead of green.
+    {
+      selector: "edge.trace-active[confidence = 'guess']",
+      style: { "line-color": "#ffaa44", "target-arrow-color": "#ffaa44" },
+    },
+    // Guess edge already traversed.
+    {
+      selector: "edge.trace-done[confidence = 'guess']",
+      style: { "line-color": "#aa7722", "target-arrow-color": "#aa7722" },
     },
   ];
 }
@@ -189,6 +199,7 @@ export default function TraceView({ selectedId, onSelect, theme, projectKey, ext
   // Picker inputs.
   const [fromInput, setFromInput] = useState(selectedId ?? "");
   const [toInput, setToInput] = useState("");
+  const [traceMode, setTraceMode] = useState("shortest"); // "shortest" or "full"
 
   // Trace state.
   const [steps, setSteps] = useState(null);
@@ -275,13 +286,13 @@ export default function TraceView({ selectedId, onSelect, theme, projectKey, ext
     setPaused(false);
     clearTimeout(animRef.current);
 
-    getTrace(fromInput, toInput || undefined)
+    getTrace(fromInput, toInput || undefined, 10, toInput ? traceMode : "shortest")
       .then((result) => {
         setSteps(result.steps);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
-  }, [fromInput, toInput]);
+  }, [fromInput, toInput, traceMode]);
 
   // ---- Draw graph when steps arrive ----
   useEffect(() => {
@@ -452,6 +463,14 @@ export default function TraceView({ selectedId, onSelect, theme, projectKey, ext
           onChange={setToInput}
           projectKey={projectKey}
         />
+        {toInput && (
+          <label className="trace-mode-toggle">
+            <select value={traceMode} onChange={(e) => setTraceMode(e.target.value)}>
+              <option value="shortest">shortest path</option>
+              <option value="full">full trace</option>
+            </select>
+          </label>
+        )}
         <button
           type="button"
           className="btn primary small"
@@ -527,11 +546,21 @@ export default function TraceView({ selectedId, onSelect, theme, projectKey, ext
         )}
       </div>
 
-      {/* Hint */}
+      {/* Confidence legend & hint */}
       {steps && (
-        <div className="trace-hint">
-          right-click a node to toggle breakpoint · left-click to inspect
-        </div>
+        <>
+          <div className="trace-legend">
+            <span className="trace-legend-item">
+              <span className="trace-legend-line certain" /> certain
+            </span>
+            <span className="trace-legend-item">
+              <span className="trace-legend-line guess" /> guess (name-only match)
+            </span>
+          </div>
+          <div className="trace-hint">
+            right-click a node to toggle breakpoint · left-click to inspect
+          </div>
+        </>
       )}
     </div>
   );

@@ -123,31 +123,63 @@ class RuleSet {
 
   /**
    * Describe the thing being called:
-   *   foo()       -> { calleeName: "foo",  objectName: null,  viaThis: false }
-   *   obj.save()  -> { calleeName: "save", objectName: "obj", viaThis: false }
-   *   this.save() -> { calleeName: "save", objectName: null,  viaThis: true  }
-   * Returns null for shapes we cannot name, such as a[b]() or fn()().
+   *   foo()            -> { calleeName: "foo",  objectName: null,  viaThis: false, rootObject: null }
+   *   obj.save()       -> { calleeName: "save", objectName: "obj", viaThis: false, rootObject: "obj" }
+   *   this.save()      -> { calleeName: "save", objectName: null,  viaThis: true,  rootObject: null }
+   *   a.b.c()          -> { calleeName: "c",    objectName: "b",   viaThis: false, rootObject: "a" }
+   *   this.store.save() -> { calleeName: "save", objectName: "this.store", viaThis: false, rootObject: null }
+   *   a[b]()           -> { calleeName: null,    objectName: null,  viaThis: false, rootObject: "a" } (FIX-6: partial)
+   * Returns null only for shapes where nothing at all can be determined (fn()()).
    */
   describeCallee(callee) {
     if (callee.type === "Identifier") {
-      return { calleeName: callee.name, objectName: null, viaThis: false };
+      return { calleeName: callee.name, objectName: null, viaThis: false, rootObject: null };
     }
 
-    const isSimpleMember =
-      callee.type === "MemberExpression" &&
-      !callee.computed &&
-      this.memberName(callee.property)!==null;
-    if (isSimpleMember) {
-      return {
-        calleeName:this.memberName(callee.property),
-        objectName:
-          callee.object.type === "ThisExpression"
-            ? null
-            : this.nameOfObject(callee.object),
-        viaThis: callee.object.type === "ThisExpression",
-      };
+    if (callee.type === "MemberExpression") {
+      const propName = callee.computed ? null : this.memberName(callee.property);
+
+      // FIX-6: Even when the property is computed (a[b]()), capture what we can.
+      if (propName === null && callee.computed) {
+        const root = this.#walkToRoot(callee.object);
+        return {
+          calleeName: null,
+          objectName: null,
+          viaThis: false,
+          rootObject: root,
+        };
+      }
+
+      if (propName !== null) {
+        const isThis = callee.object.type === "ThisExpression";
+        const objectName = isThis ? null : this.nameOfObject(callee.object);
+        // FIX-2: Walk the full chain to find the root identifier.
+        const rootObject = isThis ? null : this.#walkToRoot(callee.object);
+
+        return {
+          calleeName: propName,
+          objectName,
+          viaThis: isThis,
+          rootObject,
+        };
+      }
     }
 
+    return null;
+  }
+
+  /**
+   * Walk a MemberExpression chain to find the root identifier.
+   *   obj          -> "obj"
+   *   a.b          -> "a"
+   *   a.b.c        -> "a"
+   *   this.store   -> null (this-rooted chains are handled separately)
+   *   fn()         -> null (call expression, not an identifier root)
+   */
+  #walkToRoot(node) {
+    if (node.type === "Identifier") return node.name;
+    if (node.type === "ThisExpression") return null;
+    if (node.type === "MemberExpression") return this.#walkToRoot(node.object);
     return null;
   }
 

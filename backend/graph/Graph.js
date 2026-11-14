@@ -158,21 +158,25 @@ class Graph {
    * order it would be visited. Each step includes the edge that was followed,
    * the depth it was found at, and its order number.
    *
-   * When `toId` is given the walk stops as soon as that function is reached,
-   * and only the steps on the shortest path are returned (like findPath, but
-   * with edge detail). Without `toId` the whole reachable graph is returned.
+   * When `toId` is given, the behaviour depends on `mode`:
+   *   - "shortest" (default): stops at the first path and returns only those steps.
+   *   - "full": completes the BFS, then returns all nodes and edges that lie on
+   *     ANY path from `fromId` to `toId`.
+   * Without `toId` the whole reachable graph is returned regardless of mode.
    *
    * @param {string}  fromId   Function to start from.
    * @param {string}  [toId]   Optional target function.
    * @param {number}  [maxDepth=10] How many levels to follow.
+   * @param {string}  [mode="shortest"] "shortest" or "full".
    * @returns {Array<{node: string, from: string|null, edge: object|null, depth: number, order: number}>}
    */
-  getTrace(fromId, toId, maxDepth = 10) {
+  getTrace(fromId, toId, maxDepth = 10, mode = "shortest") {
     const steps = [{ node: fromId, from: null, edge: null, depth: 0, order: 0 }];
     const cameFrom = new Map(); // node -> { parent, edge }
     cameFrom.set(fromId, null);
     let current = [fromId];
     let order = 1;
+    let foundTarget = false;
 
     for (let level = 1; level <= maxDepth; level++) {
       const next = [];
@@ -191,23 +195,27 @@ class Graph {
           });
           next.push(edge.callee);
 
-          // If we reached the target, reconstruct just the path steps.
           if (toId && edge.callee === toId) {
-            const pathSteps = [];
-            let current = toId;
-            while (current !== null) {
-              const info = cameFrom.get(current);
-              pathSteps.push({
-                node: current,
-                from: info ? info.parent : null,
-                edge: info ? { ...info.edge, depth: 0 } : null,
-                depth: 0,
-                order: 0,
-              });
-              current = info ? info.parent : null;
+            foundTarget = true;
+
+            // In shortest mode, reconstruct and return immediately.
+            if (mode === "shortest") {
+              const pathSteps = [];
+              let cur = toId;
+              while (cur !== null) {
+                const info = cameFrom.get(cur);
+                pathSteps.push({
+                  node: cur,
+                  from: info ? info.parent : null,
+                  edge: info ? { ...info.edge, depth: 0 } : null,
+                  depth: 0,
+                  order: 0,
+                });
+                cur = info ? info.parent : null;
+              }
+              pathSteps.reverse();
+              return pathSteps.map((step, i) => ({ ...step, depth: i, order: i }));
             }
-            pathSteps.reverse();
-            return pathSteps.map((step, i) => ({ ...step, depth: i, order: i }));
           }
         }
       }
@@ -216,7 +224,51 @@ class Graph {
       if (next.length === 0) break;
     }
 
+    // FIX-3: In full mode with a target, filter to only nodes/edges on ANY path
+    // from fromId to toId by doing a reverse pass.
+    if (toId && mode === "full" && foundTarget) {
+      return this.#filterFullPaths(fromId, toId, steps);
+    }
+
     return steps;
+  }
+
+  /**
+   * Given a full BFS result, keep only the nodes and edges that lie on at
+   * least one path from `fromId` to `toId`. Works by walking backwards from
+   * `toId` through the BFS parents.
+   */
+  #filterFullPaths(fromId, toId, steps) {
+    // Build a reverse adjacency from the BFS steps (child -> set of parents).
+    const parents = new Map();
+    for (const step of steps) {
+      if (step.from !== null) {
+        const set = parents.get(step.node) ?? new Set();
+        set.add(step.from);
+        parents.set(step.node, set);
+      }
+    }
+
+    // Walk backwards from toId to find all ancestor nodes.
+    const onPath = new Set([fromId, toId]);
+    const queue = [toId];
+    while (queue.length > 0) {
+      const node = queue.shift();
+      for (const parent of parents.get(node) ?? []) {
+        if (!onPath.has(parent)) {
+          onPath.add(parent);
+          queue.push(parent);
+        }
+      }
+    }
+
+    // Filter steps to only those where both the node and its parent are on a path.
+    const filtered = steps.filter(
+      (step) => onPath.has(step.node) && (step.from === null || onPath.has(step.from))
+    );
+
+    // Re-number order.
+    return filtered.map((step, i) => ({ ...step, order: i }));
   }
 }
 

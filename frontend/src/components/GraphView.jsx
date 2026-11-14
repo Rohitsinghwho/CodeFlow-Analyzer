@@ -97,9 +97,9 @@ function buildStyle() {
       },
     },
     {
-      // Matched by name only, so draw it faint and dashed.
+      // Matched by name only, so draw it dashed and orange.
       selector: "edge[confidence = 'guess']",
-      style: { "line-style": "dashed", opacity: 0.5 },
+      style: { "line-style": "dashed", "line-color": "#cc8833", "target-arrow-color": "#cc8833", opacity: 0.7 },
     },
   ];
 }
@@ -138,11 +138,9 @@ export default function GraphView({ id, onSelect, theme, onSetPathFrom, onSetPat
       if (!isTopLevel(clickedId)) onSelectRef.current(clickedId);
     });
 
-    // Right-click a node to open context menu (only if it has ≥ 2 edges).
+    // Right-click any node to open context menu.
     cy.on("cxttap", "node", (event) => {
       const node = event.target;
-      const edgeCount = node.connectedEdges().length;
-      if (edgeCount < 2) return;
       const pos = event.renderedPosition || event.position;
       const rect = containerRef.current.getBoundingClientRect();
       setCtxMenu({ x: rect.left + pos.x, y: rect.top + pos.y, nodeId: node.id() });
@@ -319,6 +317,13 @@ export default function GraphView({ id, onSelect, theme, onSetPathFrom, onSetPat
               {file}
             </span>
           ))}
+          <span className="legend-separator">|</span>
+          <span>
+            <i className="swatch edge-certain" /> certain
+          </span>
+          <span>
+            <i className="swatch edge-guess" /> guess
+          </span>
         </div>
       )}
     </div>

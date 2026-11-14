@@ -764,6 +764,24 @@ details.parse-errors li {
   height: 10px;
   border-radius: 3px;
 }
+.swatch.edge-certain {
+  width: 20px;
+  height: 2px;
+  border-radius: 0;
+  background: var(--base-neutral);
+}
+.swatch.edge-guess {
+  width: 20px;
+  height: 2px;
+  border-radius: 0;
+  background-image: repeating-linear-gradient(
+    90deg, #cc8833 0px, #cc8833 4px, transparent 4px, transparent 8px
+  );
+}
+.legend-separator {
+  color: var(--base-border);
+  margin: 0 4px;
+}
 
 .picker {
   position: relative;
@@ -1107,6 +1125,45 @@ details.parse-errors li {
 @keyframes pulse-red {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+.trace-mode-toggle select {
+  background: var(--input-bg);
+  color: var(--base-content);
+  border: 1px solid var(--base-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-family: inherit;
+}
+
+.trace-legend {
+  display: flex;
+  gap: 16px;
+  padding: 4px 14px;
+  font-size: 0.7rem;
+  color: var(--base-content-dim);
+  border-top: 1px solid var(--base-border);
+  justify-content: center;
+}
+.trace-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.trace-legend-line {
+  display: inline-block;
+  width: 24px;
+  height: 2px;
+}
+.trace-legend-line.certain {
+  background: #22aa55;
+}
+.trace-legend-line.guess {
+  background: #cc8833;
+  background-image: repeating-linear-gradient(
+    90deg, #cc8833 0px, #cc8833 4px, transparent 4px, transparent 8px
+  );
 }
 
 .trace-hint {
